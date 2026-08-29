@@ -106,12 +106,15 @@
       <div class="kv"><span>hottest node vs setpoint</span><b id="tmax" class="mono">&mdash;</b></div>
     </div>
 
-    <div class="zone mod">
-      <div class="zhead"><span class="dot"></span>Modeled &mdash; synthetic jobs
-        <span class="why">placement follows measured state</span></div>
-      <div class="kv"><span>jobs running</span><b id="jrun">0</b></div>
-      <div class="kv"><span>jobs completed</span><b id="jdone" class="good">0</b></div>
-      <div class="kv"><span>jobs lost to domain failure</span><b id="jlost" class="bad">0</b></div>
+    <div class="zone mod" id="jobzone">
+      <div class="zhead"><span class="dot"></span><span id="jhead">Jobs</span>
+        <span class="why" id="jnote"></span></div>
+      <div class="kv"><span>submitted</span><b id="jsub">0</b></div>
+      <div class="kv"><span>running</span><b id="jrun">0</b></div>
+      <div class="kv"><span>completed</span><b id="jdone" class="good">0</b></div>
+      <div class="kv"><span>interrupt events</span><b id="jint" class="bad">0</b></div>
+      <div class="kv"><span>GPU-seconds lost</span><b id="jlost" class="bad mono">0</b></div>
+      <div class="kv"><span>avg recovery</span><b id="jrec" class="mono">&mdash;</b></div>
       <div class="ghost" id="ghost" style="display:none"></div>
     </div>
   </div>
@@ -152,8 +155,8 @@ setInterval(()=>{ if(!armed) return;
 },120);
 
 async function loadGhost(){ const g=await(await fetch('/ghost')).json();
-  if(g.jobs_lost!=null){ghostData=g;const el=document.getElementById('ghost');el.style.display='';
-    el.innerHTML=`${g.label} &middot; saved ${g.saved_at}: lost <b>${g.jobs_lost}</b> jobs at the same failure`;}}
+  if(g.interrupted!=null){ghostData=g;const el=document.getElementById('ghost');el.style.display='';
+    el.innerHTML=`${g.label} &middot; saved ${g.saved_at}: <b>${g.interrupted}</b> interrupts, <b>${g.lost_gpu_seconds}</b> GPU-s lost, ${g.completed} completed`;}}
 loadGhost();
 
 function rebuildTiles(nodes){
@@ -190,7 +193,7 @@ function drawChart(nodes){
 async function tick(){
   try{
     const m=await(await fetch('/metrics')).json();
-    const me=m.measured, ct=m.controller, mo=m.modeled;
+    const me=m.measured, ct=m.controller, mo=m.jobs||m.modeled;
     setpoint=ct.setpoint_c; band=ct.band_c;
     document.getElementById('mockbadge').style.display=me.mock?'':'none';
     document.getElementById('esrc').textContent='energy: '+me.energy_src;
@@ -224,9 +227,14 @@ async function tick(){
     document.getElementById('mode').textContent=ct.mode==='auto'?'AUTO — self-tuning':'FIXED (tuned elsewhere)';
     const a=document.getElementById('action'); a.textContent=ct.action; a.className=ct.action;
     document.getElementById('pin').style.left=((ct.lam-0.15)/(0.90-0.15)*100)+'%';
-    document.getElementById('jrun').textContent=mo.jobs;
-    document.getElementById('jdone').textContent=mo.jobs_done;
-    document.getElementById('jlost').textContent=mo.jobs_lost;
+    document.getElementById('jhead').textContent = mo.mode==='real-processes' ? 'Real jobs — measured processes' : 'Jobs — simulated (mock)';
+    document.getElementById('jnote').textContent = mo.arrival_note||'';
+    document.getElementById('jsub').textContent=(mo.submitted??0)+' / '+(mo.total_planned??'—');
+    document.getElementById('jrun').textContent=mo.running??0;
+    document.getElementById('jdone').textContent=mo.completed??0;
+    document.getElementById('jint').textContent=mo.interrupted_events??0;
+    document.getElementById('jlost').textContent=mo.lost_gpu_seconds??0;
+    document.getElementById('jrec').textContent=(mo.avg_recovery_s!=null?mo.avg_recovery_s+' s':'—');
     drawChart(me.nodes);
   }catch(e){/* network blip: keep last frame, never crash on stage */}
   setTimeout(tick,1000);   // short-poll: survives the RunPod 100 s proxy cap

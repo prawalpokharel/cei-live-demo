@@ -1,18 +1,15 @@
-"""FastAPI hub: node registry, epoch controller loop, dashboard, controls.
+"""FastAPI hub v2: node registry + REAL job accounting + controller loop.
 
 Run the hub:
     MOCK=1 uvicorn server.app:app --host 0.0.0.0 --port 8000   # $0 rehearsal
     uvicorn server.app:app --host 0.0.0.0 --port 8000          # real nodes
 
-Real nodes (rented pods, the NVIDIA laptop, Raspberry Pis) each run
-    HUB=<hub url> HOST=<name> python3 agents/node_agent.py
-and appear in the registry automatically. On a RunPod pod the dashboard is
-    https://[POD_ID]-8000.proxy.runpod.net
-(short-polled every 1 s by the page — no long-lived streams; the RunPod
-proxy caps connections at 100 s).
+Real nodes run agents/node_agent.py; jobs are real OS processes
+(jobs/gpu_job.py) spawned by agents per the hub's placement. The job
+ARRIVAL schedule is synthetic (scripted Poisson) — execution, interrupts,
+lost GPU-seconds and recovery times are measured from real processes.
 
-Domain selection: DOMAIN_MATCH=<substring> (e.g. DOMAIN_MATCH=b- makes every
-node on host "b" the shared high-centrality domain). Unset: first two nodes.
+Domain: DOMAIN_MATCH=<substring> (e.g. b-). Dashboard at :8000.
 """
 import json
 import os
@@ -23,6 +20,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
 from .controller import Controller, EPOCH_S
+from .jobs import JobManager
 from .registry import Registry
 from .scheduler import Scheduler
 from .telemetry import MOCK, LocalMockSource
@@ -30,10 +28,11 @@ from .telemetry import MOCK, LocalMockSource
 HERE = os.path.dirname(__file__)
 GHOST_PATH = os.path.join(HERE, "..", "ghost.json")
 
-app = FastAPI(title="CEI live demo hub")
+app = FastAPI(title="CEI live demo hub v2")
 reg = Registry()
 ctl = Controller()
 sched = Scheduler(reg)
+jm = JobManager(reg, mock=MOCK)
 mock = LocalMockSource(reg) if MOCK else None
 
 
@@ -42,14 +41,15 @@ def _loop():
     while True:
         if mock:
             mock.tick()
-        lam = ctl.snapshot()["lam"]
-        sched.step_jobs(lam, 1.0)
+        jm.tick(sched.running)
         now = time.time()
         if now - last_epoch >= EPOCH_S:
             last_epoch = now
             temps = [n.temp for n in reg.healthy()]
             lam = ctl.step(max(temps) if temps else 0.0)
-            sched.apply(lam)
+            if sched.running:
+                jm.assign(sched.active_set(lam))
+        sched.apply_thermal(jm.snapshot()["jobs_per_node"])
         time.sleep(1.0)
 
 
@@ -63,9 +63,13 @@ def index():
 
 @app.get("/agent")
 def agent_file():
-    """Serve the node agent so a new node needs only:
-    curl -s <hub>/agent -o node_agent.py"""
     return FileResponse(os.path.join(HERE, "..", "agents", "node_agent.py"),
+                        media_type="text/x-python")
+
+
+@app.get("/jobscript")
+def job_script():
+    return FileResponse(os.path.join(HERE, "..", "jobs", "gpu_job.py"),
                         media_type="text/x-python")
 
 
@@ -74,12 +78,16 @@ def agent_file():
 def node_report(body: dict):
     ids = []
     for n in body.get("nodes", []):
-        nid = n["id"]
-        reg.upsert(nid, n.get("kind", "gpu"), n.get("temp", 0),
+        reg.upsert(n["id"], n.get("kind", "gpu"), n.get("temp", 0),
                    n.get("watts", 0), n.get("util", 0))
-        ids.append(nid)
-    return {"directives": reg.directives_for(ids),
-            "running": sched.running}
+        ids.append(n["id"])
+    if body.get("job_status"):
+        jm.agent_status(body["job_status"])
+    d = reg.directives_for(ids)
+    jobs = jm.jobs_for(ids)
+    for nid in d:
+        d[nid]["jobs"] = jobs.get(nid, [])
+    return {"directives": d, "running": sched.running}
 
 
 @app.get("/metrics")
@@ -88,14 +96,14 @@ def metrics():
     m["energy_src"] = "integrated from reported watts @1Hz"
     m["mock"] = MOCK
     return {"measured": m, "controller": ctl.snapshot(),
-            "modeled": sched.snapshot()}
+            "jobs": jm.snapshot(),
+            "modeled": jm.snapshot()}       # back-compat alias
 
 
 # ---- controls ------------------------------------------------------------
 @app.post("/control/start")
 def start():
     sched.running = True
-    sched.apply(ctl.snapshot()["lam"])
     return {"ok": True}
 
 
@@ -109,20 +117,25 @@ def mode(body: dict):
 
 @app.post("/control/kill_domain")
 def kill_domain():
-    lost = sched.kill_domain()
-    return {"ok": True, "jobs_lost_now": lost}
+    ids = set(reg.fail_domain())
+    hit = jm.fail_nodes(ids)
+    return {"ok": True, "jobs_interrupted_now": hit}
 
 
 @app.post("/control/reset")
 def reset():
-    sched.reset()
+    reg.reset()
+    jm.reset()
     return {"ok": True}
 
 
 @app.post("/control/ghost/save")
 def ghost_save():
     c = ctl.snapshot()
-    snap = {"jobs_lost": sched.snapshot()["jobs_lost"],
+    s = jm.snapshot()
+    snap = {"interrupted": s["interrupted_events"],
+            "lost_gpu_seconds": s["lost_gpu_seconds"],
+            "completed": s["completed"],
             "label": f"earlier run ({c['mode']} λ={c['lam']})",
             "saved_at": time.strftime("%H:%M")}
     with open(GHOST_PATH, "w") as f:
@@ -135,4 +148,4 @@ def ghost():
     if os.path.exists(GHOST_PATH):
         with open(GHOST_PATH) as f:
             return json.load(f)
-    return JSONResponse({"jobs_lost": None}, status_code=200)
+    return JSONResponse({"interrupted": None}, status_code=200)

@@ -79,3 +79,27 @@ Open the pod-A URL in a browser: **10 tiles**, `b-g0`/`b-g1` tagged DOMAIN.
 - Screenshot the dashboard with 10 real nodes — deck/LinkedIn material.
 - Note the observed plateau temps + heat-up times per card → set
   `SETPOINT_C` for the conference run.
+
+## V2 — the real-jobs experiment (eliminates the synthetic-job caveat)
+
+Jobs are now REAL OS processes (`jobs/gpu_job.py`, torch matmuls on the
+assigned GPU) with heartbeat progress files. Arrival schedule stays
+synthetic (say so); execution, interrupts, lost GPU-seconds and recovery
+times are measured from the processes themselves.
+
+**Protocol (symmetric arms — kill at the same clock time in both):**
+1. Env on the hub: `TOTAL_JOBS=40 ARRIVAL_P=0.35 JOB_MIN_S=45 JOB_MAX_S=120`.
+2. ARM 1 (fixed λ=0.90, centrality-blind): start stream; at **T+90 s** kill
+   the domain. Record: interrupts, lost GPU-seconds, avg recovery, completed.
+   Save as ghost. Reset.
+3. ARM 2 (AUTO from λ=0.85): identical schedule; at **T+90 s** kill the
+   domain. Record the same four numbers.
+4. Report as: "N/40 real jobs interrupted, X GPU-seconds lost, Y s mean
+   recovery" per arm — real processes, synthetic arrivals, stated plainly.
+5. Let arm 2 run to completion for the goodput/energy tally (Wh per
+   completed job from integrated watts).
+
+Local validation (2026-08-29, real CPU processes): fixed arm packed 8 real
+PIDs onto the domain; kill produced 8 real interrupts / 74.2 real GPU-s
+lost; interrupted jobs were requeued and restarted on survivors within one
+epoch. Governed arm: 0 interrupts, 24/24 completed.

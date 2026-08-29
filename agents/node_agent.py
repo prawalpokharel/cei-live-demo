@@ -1,23 +1,19 @@
 #!/usr/bin/env python3
-"""Universal node agent — runs on anything, reports to the hub at 1 Hz.
+"""Universal node agent v2 — telemetry up, REAL jobs down. Stdlib only.
 
     HUB=https://<podid>-8000.proxy.runpod.net HOST=a python3 node_agent.py
-    HUB=http://192.168.8.10:8000 HOST=pi1 python3 node_agent.py      # Pi
-    HUB=http://localhost:8123 HOST=b MOCK_GPUS=2 python3 node_agent.py
+    HUB=http://localhost:8123 HOST=b MOCK_GPUS=2 ALLOW_CPU=1 python3 node_agent.py
 
-Stdlib only — no pip installs on a fresh pod or Pi. Each 1 Hz report's
-REPLY carries the hub's desired intensity per node (pull-based actuation:
-nodes never need inbound network access), and the agent reconciles local
-load to match:
-  NVIDIA GPUs  -> one gpu-burn process per active GPU  (GPU_BURN=path)
-  Raspberry Pi -> stress-ng --cpu N while active       (auto-detected)
-  MOCK_GPUS=k  -> k simulated GPUs (thermal model), for $0 rehearsals
+Each 1 Hz report carries real telemetry (nvidia-smi / vcgencmd / mock) and
+the status of every job process this agent runs. The reply's directives
+assign REAL jobs per node: the agent spawns one OS process per job
+(jobs/gpu_job.py, fetched from the hub's /jobscript), pinned to the
+node's GPU. A failed node directive SIGKILLs its jobs — a real interrupt,
+whose lost progress the hub reads from the job's last heartbeat.
 
-Telemetry sources (auto-detected, in order): nvidia-smi (GPU temp/power/
-util), vcgencmd (Pi SoC temp; watts unavailable -> reported 0 and the hub
-labels wall-watts as the Pi's meter source), mock.
-
-MEASURED discipline: this agent only ever reports what a sensor said.
+ALLOW_CPU=1 lets jobs run on CPU (validation on GPU-less machines).
+MEASURED discipline: telemetry is only what a sensor said; job progress
+is only what the job process itself wrote.
 """
 import json
 import os
@@ -33,8 +29,9 @@ import urllib.request
 HUB = os.environ.get("HUB", "http://localhost:8000").rstrip("/")
 HOST = os.environ.get("HOST", socket.gethostname().split(".")[0])
 MOCK_GPUS = int(os.environ.get("MOCK_GPUS", "0"))
-GPU_BURN = os.environ.get("GPU_BURN", "./gpu-burn/gpu_burn")
-STRESS_CPUS = os.environ.get("STRESS_CPUS", "4")
+ALLOW_CPU = os.environ.get("ALLOW_CPU", "0") == "1"
+PDIR = os.environ.get("PROGRESS_DIR", "/tmp/cei-jobs-" + HOST)
+JOB_SCRIPT = os.environ.get("JOB_SCRIPT", "/tmp/cei_gpu_job.py")
 
 _T_IDLE, _T_BURN = 31.0, 80.0
 _W_IDLE, _W_BURN = 16.0, 430.0
@@ -48,7 +45,7 @@ def detect():
         return "nvidia"
     if shutil.which("vcgencmd"):
         return "pi"
-    print("!! no nvidia-smi or vcgencmd; set MOCK_GPUS=n to simulate")
+    print("!! no nvidia-smi or vcgencmd; set MOCK_GPUS=n to simulate telemetry")
     sys.exit(1)
 
 
@@ -72,19 +69,21 @@ def read_pi():
                          capture_output=True, text=True, timeout=5).stdout
     t = float(out.split("=")[1].split("'")[0])
     return [{"id": f"{HOST}-soc", "kind": "pi", "temp": t,
-             "watts": 0.0, "util": 0.0}]   # Pi watts come from its wall meter
+             "watts": 0.0, "util": 0.0}]
 
 
 class MockBank:
-    def __init__(self, k):
+    """Mock telemetry whose temperature follows this node's REAL job load."""
+    def __init__(self, k, runner):
+        self.runner = runner
         self.temps = {f"{HOST}-g{i}": _T_IDLE + random.uniform(-1, 1)
                       for i in range(k)}
-        self.intensity = {nid: 0.0 for nid in self.temps}
 
     def read(self):
         nodes = []
+        per = self.runner.per_node_count()
         for nid, t in self.temps.items():
-            x = self.intensity[nid]
+            x = min(1.0, per.get(nid, 0) / 4.0)
             target = _T_IDLE + (_T_BURN - _T_IDLE) * (x ** 0.7)
             t += (target - t) * _ALPHA + random.uniform(-0.3, 0.3)
             self.temps[nid] = t
@@ -94,62 +93,109 @@ class MockBank:
         return nodes
 
 
-class Burns:
-    """Reconcile real load processes to the hub's directives."""
-    def __init__(self, source):
-        self.source = source
-        self.procs = {}
+class JobRunner:
+    """One real OS process per job, pinned to the node's device."""
+    def __init__(self):
+        self.procs = {}          # job_id -> {popen, node}
+        os.makedirs(PDIR, exist_ok=True)
+        self._fetch_script()
+
+    def _fetch_script(self):
+        if os.path.exists(JOB_SCRIPT):
+            return
+        try:
+            req = urllib.request.Request(HUB + "/jobscript",
+                                         headers={"User-Agent": "cei-node-agent/2.0"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                data = r.read()
+            if data.startswith(b"#!/usr/bin/env python"):
+                with open(JOB_SCRIPT, "wb") as f:
+                    f.write(data)
+        except Exception:
+            pass                                    # retried next reconcile
 
     def reconcile(self, directives):
+        want = {}                                   # job_id -> (node, seconds)
         for nid, d in directives.items():
-            want = d["intensity"] > 0 and not d["failed"]
-            have = nid in self.procs and self.procs[nid].poll() is None
-            if want and not have:
-                self.procs[nid] = self._start(nid)
-            elif not want and have:
-                self.procs[nid].send_signal(signal.SIGKILL)
-                self.procs.pop(nid, None)
+            if d.get("failed"):
+                for jid, rec in list(self.procs.items()):
+                    if rec["node"] == nid:
+                        try:
+                            rec["popen"].send_signal(signal.SIGKILL)
+                        except Exception:
+                            pass
+                        # keep entry until reported dead once
+                continue
+            for j in d.get("jobs", []):
+                want[j["id"]] = (nid, j["seconds"])
+        self._fetch_script()
+        for jid, (nid, seconds) in want.items():
+            if jid in self.procs and self.procs[jid]["popen"].poll() is None:
+                continue
+            if jid in self.procs:
+                continue                            # finished; awaiting report
+            dev = nid.rsplit("g", 1)[-1] if "-g" in nid else "cpu"
+            env = dict(os.environ,
+                       JOB_ID=jid, SECONDS=str(seconds),
+                       DEVICE=("cpu" if (ALLOW_CPU and MOCK_GPUS) else dev),
+                       PROGRESS_DIR=PDIR)
+            try:
+                self.procs[jid] = {"node": nid, "popen": subprocess.Popen(
+                    [sys.executable, JOB_SCRIPT], env=env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)}
+            except Exception as e:
+                print("job spawn failed:", jid, e)
 
-    def _start(self, nid):
-        if self.source == "nvidia":
-            idx = nid.rsplit("g", 1)[1]
-            return subprocess.Popen([GPU_BURN, "-i", idx, "36000"],
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL)
-        return subprocess.Popen(["stress-ng", "--cpu", STRESS_CPUS,
-                                 "--timeout", "36000"],
-                                stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL)
+    def statuses(self):
+        out = []
+        for jid, rec in list(self.procs.items()):
+            elapsed, done = 0.0, False
+            try:
+                with open(os.path.join(PDIR, jid + ".json")) as f:
+                    hb = json.load(f)
+                elapsed, done = hb.get("elapsed", 0.0), hb.get("done", False)
+            except Exception:
+                pass
+            rc = rec["popen"].poll()
+            alive = rc is None
+            out.append({"id": jid, "elapsed": elapsed,
+                        "done": done or (rc == 0), "alive": alive})
+            if not alive:
+                del self.procs[jid]                 # reported once, forget
+        return out
+
+    def per_node_count(self):
+        per = {}
+        for rec in self.procs.values():
+            if rec["popen"].poll() is None:
+                per[rec["node"]] = per.get(rec["node"], 0) + 1
+        return per
 
 
-def post(nodes):
+def post(nodes, job_status):
     req = urllib.request.Request(
         HUB + "/telemetry/node",
-        data=json.dumps({"host": HOST, "nodes": nodes}).encode(),
+        data=json.dumps({"host": HOST, "nodes": nodes,
+                         "job_status": job_status}).encode(),
         headers={"Content-Type": "application/json",
-                 "User-Agent": "cei-node-agent/1.0"})
+                 "User-Agent": "cei-node-agent/2.0"})
     with urllib.request.urlopen(req, timeout=3) as r:
         return json.loads(r.read())
 
 
 def main():
     source = detect()
-    mock = MockBank(MOCK_GPUS) if source == "mock" else None
-    burns = None if source == "mock" else Burns(source)
-    print(f"node_agent: host={HOST} source={source} hub={HUB}")
+    runner = JobRunner()
+    mock = MockBank(MOCK_GPUS, runner) if source == "mock" else None
+    print(f"node_agent v2: host={HOST} source={source} hub={HUB}")
     misses = 0
     while True:
         t0 = time.time()
         try:
             nodes = mock.read() if mock else \
                 (read_nvidia() if source == "nvidia" else read_pi())
-            reply = post(nodes)
-            d = reply.get("directives", {})
-            if mock:
-                for nid, dd in d.items():
-                    mock.intensity[nid] = 0.0 if dd["failed"] else dd["intensity"]
-            elif burns:
-                burns.reconcile(d)
+            reply = post(nodes, runner.statuses())
+            runner.reconcile(reply.get("directives", {}))
             misses = 0
         except Exception as e:
             misses += 1
