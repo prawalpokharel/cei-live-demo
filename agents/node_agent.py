@@ -126,7 +126,8 @@ def post(nodes):
     req = urllib.request.Request(
         HUB + "/telemetry/node",
         data=json.dumps({"host": HOST, "nodes": nodes}).encode(),
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json",
+                 "User-Agent": "cei-node-agent/1.0"})
     with urllib.request.urlopen(req, timeout=3) as r:
         return json.loads(r.read())
 

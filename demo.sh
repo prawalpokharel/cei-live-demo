@@ -23,7 +23,8 @@ else
 fi
 
 python3 -m pip install --quiet fastapi "uvicorn[standard]" 2>/dev/null || \
-  python3 -m pip install --quiet --user fastapi "uvicorn[standard]"
+  python3 -m pip install --quiet --user fastapi "uvicorn[standard]" 2>/dev/null || \
+  python3 -m pip install --quiet --break-system-packages fastapi "uvicorn[standard]"
 
 PORT="${PORT:-8000}"
 SESSION=cei-demo

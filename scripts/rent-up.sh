@@ -10,25 +10,36 @@ cd "$(dirname "$0")/.."
 
 IMG="${IMG:-runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2404}"
 GPU="${GPU:-NVIDIA GeForce RTX 4090}"
+COUNT_A="${COUNT_A:-8}"
+COUNT_B="${COUNT_B:-2}"
+DC="${DC:-}"                       # e.g. EU-SE-1; empty = any datacenter
+DCFLAG=(); [ -n "$DC" ] && DCFLAG=(--data-center-ids "$DC")
 
 pod_id() { python3 -c '
 import json, sys
-d = json.load(sys.stdin)
+raw = sys.stdin.read().strip()
+try:
+    d = json.loads(raw) if raw else {}
+except Exception:
+    d = {}
 if isinstance(d, dict):
     print(d.get("id") or d.get("pod", {}).get("id") or "")
 '; }
 
-echo "==> Pod A (hub + 8 nodes): 8x $GPU, Secure Cloud, port 8000/http"
+echo "==> Pod A (hub): ${COUNT_A}x $GPU, Secure Cloud, port 8000/http ${DC:+(DC $DC)}"
 A_ID=$(runpodctl pod create --name cei-hub-a \
-  --gpu-id "$GPU" --gpu-count 8 --cloud-type SECURE \
+  --gpu-id "$GPU" --gpu-count "$COUNT_A" --cloud-type SECURE "${DCFLAG[@]}" \
   --image "$IMG" --ports "8000/http,22/tcp" \
   --container-disk-in-gb 40 --wait -o json | pod_id)
-[ -n "$A_ID" ] || { echo "!! could not parse Pod A id"; exit 1; }
+[ -n "$A_ID" ] || { echo "!! Pod A create failed (likely no stock at that spec)."
+  echo "   Check availability:  runpodctl gpu list"
+  echo "   Retry with knobs, e.g.:  GPU=\"NVIDIA A40\" DC=EU-SE-1 COUNT_A=8 scripts/rent-up.sh"
+  exit 1; }
 echo "    Pod A: $A_ID"
 
-echo "==> Pod B (the domain): 2x $GPU, Secure Cloud"
+echo "==> Pod B (the domain): ${COUNT_B}x $GPU, Secure Cloud ${DC:+(DC $DC)}"
 B_ID=$(runpodctl pod create --name cei-domain-b \
-  --gpu-id "$GPU" --gpu-count 2 --cloud-type SECURE \
+  --gpu-id "$GPU" --gpu-count "$COUNT_B" --cloud-type SECURE "${DCFLAG[@]}" \
   --image "$IMG" --ports "22/tcp" \
   --container-disk-in-gb 40 --wait -o json | pod_id)
 [ -n "$B_ID" ] || { echo "!! could not parse Pod B id (Pod A $A_ID is RUNNING and billing — rent-down.sh removes it)"; echo "$A_ID" > .pods; exit 1; }
