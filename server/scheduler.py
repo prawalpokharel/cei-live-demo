@@ -24,6 +24,7 @@ class Scheduler:
         self.lock = threading.Lock()
         self.running = False
         self.centrality = False          # False = gamma=0 strawman
+        self.random_place = False        # True = ignore policy, place anywhere
 
     def active_set(self, lam):
         healthy = [n.id for n in self.reg.healthy()]

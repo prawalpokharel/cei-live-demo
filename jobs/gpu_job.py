@@ -16,7 +16,9 @@ import os
 import time
 
 JOB_ID = os.environ.get("JOB_ID", "j0")
-SECONDS = float(os.environ.get("SECONDS", "30"))
+SECONDS = float(os.environ.get("SECONDS", "30"))       # TOTAL work required
+RESUME_S = float(os.environ.get("RESUME_S", "0"))      # checkpointed progress
+CKPT_EVERY_S = float(os.environ.get("CKPT_EVERY_S", "10"))
 DEVICE = os.environ.get("DEVICE", "cpu")          # "0","1",... or "cpu"
 PDIR = os.environ.get("PROGRESS_DIR", "/tmp/cei-jobs")
 
@@ -25,10 +27,11 @@ path = os.path.join(PDIR, JOB_ID + ".json")
 
 
 def beat(elapsed, done):
+    ckpt = (elapsed // CKPT_EVERY_S) * CKPT_EVERY_S     # durable every N s
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump({"job_id": JOB_ID, "elapsed": round(elapsed, 1),
-                   "target": SECONDS, "done": done}, f)
+                   "ckpt": round(ckpt, 1), "target": SECONDS, "done": done}, f)
     os.replace(tmp, path)
 
 
@@ -49,9 +52,9 @@ def main():
 
     t0 = time.time()
     last_beat = 0.0
-    beat(0.0, False)
+    beat(RESUME_S, False)
     while True:
-        elapsed = time.time() - t0
+        elapsed = RESUME_S + (time.time() - t0)   # total progress incl. resume
         if elapsed >= SECONDS:
             break
         if use_torch:

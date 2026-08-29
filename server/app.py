@@ -55,7 +55,9 @@ def _loop():
             temps = [n.temp for n in reg.healthy()]
             lam = ctl.step(max(temps) if temps else 0.0)
             if sched.running:
-                jm.assign(sched.active_set(lam))
+                active = ([n.id for n in reg.healthy()] if sched.random_place
+                          else sched.active_set(lam))
+                jm.assign(active, random_place=sched.random_place)
         sched.apply_thermal(jm.snapshot()["jobs_per_node"])
         time.sleep(1.0)
 
@@ -118,21 +120,27 @@ def start():
 def mode(body: dict):
     m = body.get("mode", "auto")
     ctl.set_mode(m, body.get("lam"))
-    sched.centrality = (m == "auto")   # AUTO = CEI proper; FIXED = gamma=0
+    # AUTO = CEI proper; FIXED = gamma=0 strawman. An explicit "centrality"
+    # boolean overrides — the ablation arm is AUTO with centrality off.
+    c = body.get("centrality")
+    sched.centrality = (m == "auto") if c is None else bool(c)
+    sched.random_place = bool(body.get("placement") == "random")
     return ctl.snapshot()
 
 
 @app.post("/control/kill_domain")
-def kill_domain():
-    ids = set(reg.fail_domain())
+def kill_domain(body: dict = None):
+    match = (body or {}).get("match")
+    ids = set(reg.fail_match(match) if match else reg.fail_domain())
     hit = jm.fail_nodes(ids)
-    return {"ok": True, "jobs_interrupted_now": hit}
+    return {"ok": True, "jobs_interrupted_now": hit, "failed_nodes": sorted(ids)}
 
 
 @app.post("/control/reset")
-def reset():
+def reset(body: dict = None):
     reg.reset()
-    jm.reset()
+    jm.reset(seed=(body or {}).get("seed"))
+    sched.running = False
     return {"ok": True}
 
 

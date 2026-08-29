@@ -87,6 +87,15 @@ class Registry:
                 if nid in self.nodes:
                     self.nodes[nid].desired = x
 
+    def fail_match(self, match):
+        """Fail every node whose id contains `match` (undeclared-domain trials)."""
+        ids = [n.id for n in self.ordered() if match in n.id]
+        with self.lock:
+            for nid in ids:
+                self.nodes[nid].failed = True
+                self.nodes[nid].desired = 0.0
+        return ids
+
     def fail_domain(self):
         ids = self.domain_ids()
         with self.lock:

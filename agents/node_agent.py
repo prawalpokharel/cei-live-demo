@@ -115,11 +115,12 @@ class JobRunner:
             pass                                    # retried next reconcile
 
     def reconcile(self, directives):
-        want = {}                                   # job_id -> (node, seconds)
+        want = {}                        # job_id -> (node, seconds, resume_s)
         for nid, d in directives.items():
             if d.get("failed"):
                 for jid, rec in list(self.procs.items()):
                     if rec["node"] == nid:
+                        print(f"DEBUG kill-failed-node {jid} on {nid}", flush=True)
                         try:
                             rec["popen"].send_signal(signal.SIGKILL)
                         except Exception:
@@ -127,9 +128,29 @@ class JobRunner:
                         # keep entry until reported dead once
                 continue
             for j in d.get("jobs", []):
-                want[j["id"]] = (nid, j["seconds"])
+                want[j["id"]] = (nid, j["seconds"], j.get("resume_s", 0))
         self._fetch_script()
-        for jid, (nid, seconds) in want.items():
+        # Two-way reconcile with a GRACE PERIOD: a live process is only a
+        # stray if the hub has not wanted it for 3 consecutive cycles (kills
+        # trial-reset ghosts within ~3 s while being immune to any one-cycle
+        # want/have race, which caused repeated spurious kills when this was
+        # immediate).
+        for jid, rec in list(self.procs.items()):
+            if jid in want or rec["popen"].poll() is not None:
+                rec["unwanted"] = 0
+                continue
+            rec["unwanted"] = rec.get("unwanted", 0) + 1
+            if rec["unwanted"] >= 3:
+                try:
+                    rec["popen"].send_signal(signal.SIGKILL)
+                except Exception:
+                    pass
+                self.procs.pop(jid, None)
+                try:
+                    os.remove(os.path.join(PDIR, jid + ".json"))
+                except Exception:
+                    pass
+        for jid, (nid, seconds, resume_s) in want.items():
             if jid in self.procs and self.procs[jid]["popen"].poll() is None:
                 continue
             if jid in self.procs:
@@ -137,12 +158,20 @@ class JobRunner:
             dev = nid.rsplit("g", 1)[-1] if "-g" in nid else "cpu"
             env = dict(os.environ,
                        JOB_ID=jid, SECONDS=str(seconds),
+                       RESUME_S=str(resume_s),
                        DEVICE=("cpu" if (ALLOW_CPU and MOCK_GPUS) else dev),
                        PROGRESS_DIR=PDIR)
             try:
+                # stale heartbeat from a previous trial with a reused job id
+                # must never be read as this process's status
+                os.remove(os.path.join(PDIR, jid + ".json"))
+            except Exception:
+                pass
+            try:
                 self.procs[jid] = {"node": nid, "popen": subprocess.Popen(
                     [sys.executable, JOB_SCRIPT], env=env,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)}
+                    stdout=subprocess.DEVNULL,
+                    stderr=open(os.path.join(PDIR, jid + ".err"), "wb"))}
             except Exception as e:
                 print("job spawn failed:", jid, e)
 
@@ -154,14 +183,21 @@ class JobRunner:
                 with open(os.path.join(PDIR, jid + ".json")) as f:
                     hb = json.load(f)
                 elapsed, done = hb.get("elapsed", 0.0), hb.get("done", False)
+                ckpt = hb.get("ckpt", 0.0)
             except Exception:
-                pass
+                ckpt = 0.0
             rc = rec["popen"].poll()
             alive = rc is None
-            out.append({"id": jid, "elapsed": elapsed,
+            if not alive and rc != 0:
+                print(f"DEBUG dead {jid} rc={rc}", flush=True)
+            out.append({"id": jid, "elapsed": elapsed, "ckpt": ckpt,
                         "done": done or (rc == 0), "alive": alive})
             if not alive:
                 del self.procs[jid]                 # reported once, forget
+                try:
+                    os.remove(os.path.join(PDIR, jid + ".json"))
+                except Exception:
+                    pass
         return out
 
     def per_node_count(self):

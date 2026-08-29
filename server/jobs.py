@@ -28,6 +28,7 @@ class JobManager:
     def __init__(self, registry, mock):
         self.reg = registry
         self.mock = mock
+        self.rng = random.Random()
         self.lock = threading.Lock()
         self.jobs = {}                 # id -> dict
         self.seq = 0
@@ -41,19 +42,19 @@ class JobManager:
         if self.seq >= TOTAL_JOBS:
             self.arrivals_done = True
             return
-        if random.random() < ARRIVAL_P:
+        if self.rng.random() < ARRIVAL_P:
             self.seq += 1
             jid = f"j{self.seq}"
             self.jobs[jid] = {
                 "id": jid, "state": "queued", "node": None,
-                "duration_s": round(random.uniform(JOB_MIN_S, JOB_MAX_S), 1),
-                "progress_s": 0.0, "attempt": 1,
+                "duration_s": round(self.rng.uniform(JOB_MIN_S, JOB_MAX_S), 1),
+                "progress_s": 0.0, "ckpt_s": 0.0, "attempt": 1,
                 "submitted": time.time(), "started": None,
                 "interrupted_at": None,
             }
 
     # ---- placement over the policy's active set --------------------------
-    def assign(self, active_ids):
+    def assign(self, active_ids, random_place=False):
         with self.lock:
             if not active_ids:
                 return
@@ -64,9 +65,16 @@ class JobManager:
             for j in self.jobs.values():
                 if j["state"] != "queued":
                     continue
-                nid = min(active_ids, key=lambda n: (loads[n], active_ids.index(n)))
-                if loads[nid] >= PER_NODE_CAP:
-                    continue
+                if random_place:
+                    open_ids = [n for n in active_ids if loads[n] < PER_NODE_CAP]
+                    if not open_ids:
+                        continue
+                    nid = self.rng.choice(open_ids)
+                else:
+                    nid = min(active_ids,
+                              key=lambda n: (loads[n], active_ids.index(n)))
+                    if loads[nid] >= PER_NODE_CAP:
+                        continue
                 j["node"] = nid
                 j["state"] = "running"
                 j["started"] = time.time()
@@ -101,17 +109,23 @@ class JobManager:
                 if not j["node"] or not j["node"].startswith(host + "-"):
                     continue
                 j["progress_s"] = max(j["progress_s"], float(st.get("elapsed", 0)))
+                j["ckpt_s"] = max(j["ckpt_s"], float(st.get("ckpt", 0)))
                 if st.get("done"):
                     j["state"] = "completed"
                 elif not st.get("alive", True):
                     self._interrupt(j)     # process died without completing
 
     def _interrupt(self, j):
+        import sys
+        print(f"INTERRUPT {j['id']} node={j['node']} prog={j['progress_s']:.1f} "
+              f"ckpt={j['ckpt_s']:.1f} attempt={j['attempt']}", file=sys.stderr, flush=True)
         self.interrupted_events += 1
-        self.lost_gpu_s += j["progress_s"]
-        j["state"] = "queued"              # requeue for recovery measurement
+        # With checkpointing, only work since the last durable checkpoint is
+        # lost; the job resumes from ckpt on a survivor (real migration).
+        self.lost_gpu_s += max(0.0, j["progress_s"] - j["ckpt_s"])
+        j["state"] = "queued"
         j["attempt"] += 1
-        j["progress_s"] = 0.0
+        j["progress_s"] = j["ckpt_s"]
         j["interrupted_at"] = time.time()
         j["node"] = None
 
@@ -128,13 +142,16 @@ class JobManager:
     # ---- directives for one agent ----------------------------------------
     def jobs_for(self, node_ids):
         with self.lock:
-            return {nid: [{"id": j["id"], "seconds": j["duration_s"]}
+            return {nid: [{"id": j["id"], "seconds": j["duration_s"],
+                           "resume_s": j["ckpt_s"]}
                           for j in self.jobs.values()
                           if j["state"] == "running" and j["node"] == nid]
                     for nid in node_ids}
 
-    def reset(self):
+    def reset(self, seed=None):
         with self.lock:
+            if seed is not None:
+                self.rng.seed(int(seed))
             self.jobs.clear()
             self.seq = 0
             self.arrivals_done = False
@@ -163,4 +180,6 @@ class JobManager:
                                   if self.recoveries else None,
                 "jobs_per_node": per_node,
                 "arrivals_done": self.arrivals_done,
+                "all_done": self.arrivals_done and
+                            by("completed") == self.seq and self.seq > 0,
             }
