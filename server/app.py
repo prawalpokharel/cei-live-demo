@@ -17,6 +17,7 @@ import threading
 import time
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from .controller import Controller, EPOCH_S
@@ -29,6 +30,12 @@ HERE = os.path.dirname(__file__)
 GHOST_PATH = os.path.join(HERE, "..", "ghost.json")
 
 app = FastAPI(title="CEI live demo hub v2")
+# Allow the product's /live page (and local dev) to read this hub's metrics.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://gpu.iversoncloud.com", "http://localhost:3100",
+                   "http://localhost:3000"],
+    allow_methods=["GET", "POST"], allow_headers=["*"])
 reg = Registry()
 ctl = Controller()
 sched = Scheduler(reg)
