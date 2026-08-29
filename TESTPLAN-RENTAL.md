@@ -6,6 +6,20 @@ so the only thing left before the conference is rehearsal polish.
 
 **Cost: ~$15–25 for two hours.** Per-second billing; stop the pods when done.
 
+## Renting — CLI path (preferred; from your laptop)
+
+One-time: `runpodctl config --apiKey=YOUR_KEY` (key from runpod.io Console →
+Settings → API Keys; runpodctl is installed at /opt/homebrew/bin).
+
+```bash
+scripts/rent-up.sh      # creates BOTH pods, waits until reachable, prints the hub URL
+scripts/rent-down.sh    # deletes them (billing stops)
+```
+
+`.pods` records the ids. `runpodctl pod list` / `pod get <id>` /
+`pod logs <id> --follow` for status. The web-console path below is the
+equivalent manual fallback.
+
 ## What to rent (RunPod → Secure Cloud)
 
 Two pods, so the domain is a REAL separate host:
