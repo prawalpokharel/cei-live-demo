@@ -1,0 +1,237 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CEI Live Cluster</title>
+<style>
+  :root{
+    --ink:#17153B; --panel:#1E1B47; --panel2:#252159; --line:#322C6B;
+    --text:#ECEBFA; --mut:#9995C6; --ice:#C7D2FE;
+    --teal:#5EEAD4; --tealS:#0D9488; --amber:#FBBF24; --amberS:#D97706;
+    --red:#F87171; --redS:#DC2626;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--ink);color:var(--text);font-family:Inter,-apple-system,system-ui,sans-serif;padding:18px 22px;min-height:100vh}
+  .mono{font-family:"IBM Plex Mono",SFMono-Regular,Menlo,monospace}
+  .top{display:flex;align-items:baseline;gap:18px;margin-bottom:14px}
+  .top .brand{font-size:20px;font-weight:800;letter-spacing:.02em}
+  .top .brand b{color:var(--teal)}
+  .top .sub{color:var(--mut);font-size:13px;letter-spacing:.14em;text-transform:uppercase}
+  .top .grow{flex:1}
+  .badge{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
+  .badge.mock{color:var(--amber);border-color:var(--amberS)}
+  .badge.armed{color:#fff;background:var(--redS);border-color:var(--redS);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.55}}
+  .uptime{color:var(--ice);font-size:14px}
+  .zones{display:grid;grid-template-columns:1fr 340px;gap:14px}
+  @media(max-width:1100px){.zones{grid-template-columns:1fr}}
+  .zone{border:1.5px solid var(--line);border-radius:16px;padding:14px 16px;background:var(--panel)}
+  .zone.meas{border-color:rgba(45,212,191,.45)}
+  .zone.mod{border-color:rgba(245,158,11,.45)}
+  .zhead{font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .zone.meas .zhead{color:var(--teal)} .zone.mod .zhead{color:var(--amber)}
+  .zhead .dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+  .zhead .why{color:var(--mut);font-weight:400;text-transform:none;letter-spacing:0;font-size:11.5px;margin-left:auto}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px;margin-bottom:12px}
+  .tile{background:var(--panel2);border:2px solid var(--line);border-radius:12px;padding:9px 11px;position:relative;transition:border-color .4s, background .4s}
+  .tile .gid{font-size:10.5px;color:var(--mut);letter-spacing:.08em;text-transform:uppercase}
+  .tile .w{font-size:26px;font-weight:800;line-height:1.15}
+  .tile .w small{font-size:12px;font-weight:600;color:var(--mut)}
+  .tile .t{font-size:13px;color:var(--ice)}
+  .tile .dom{position:absolute;top:7px;right:8px;font-size:9px;letter-spacing:.06em;color:var(--amber);border:1px solid var(--amberS);border-radius:999px;padding:1px 6px}
+  .tile.failed{background:#2A1230;border-color:var(--redS)}
+  .tile.failed .w{color:var(--red)}
+  .tile.failed::after{content:"DOMAIN DOWN";position:absolute;inset:auto 8px 7px auto;font-size:9px;color:var(--red);letter-spacing:.06em;font-weight:700}
+  .tile.stale{opacity:.45}
+  .tile.stale::after{content:"OFFLINE";position:absolute;inset:auto 8px 7px auto;font-size:9px;color:var(--mut);letter-spacing:.06em;font-weight:700}
+  canvas{width:100%;border-radius:10px;background:var(--panel2)}
+  .legend{display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--mut);flex-wrap:wrap}
+  .legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;background:var(--c)}
+  .lamwrap{text-align:center;padding:4px 0 8px}
+  .lamval{font-size:52px;font-weight:800;line-height:1}
+  .lamlab{font-size:11px;letter-spacing:.14em;color:var(--mut);text-transform:uppercase;margin-top:2px}
+  .lamaction{font-size:13px;margin-top:6px;color:var(--ice)}
+  .lamaction b.retreat{color:var(--red)} .lamaction b.advance{color:var(--teal)} .lamaction b.hold{color:var(--mut)} .lamaction b.fixed{color:var(--amber)}
+  .spectrum{height:14px;border-radius:999px;background:linear-gradient(90deg,var(--tealS),#8a9a55,var(--amberS));position:relative;margin:12px 6px 4px}
+  .spectrum .pin{position:absolute;top:-5px;width:4px;height:24px;background:#fff;border-radius:2px;transition:left .5s}
+  .spectrum-cap{display:flex;justify-content:space-between;font-size:10.5px;color:var(--mut);margin:2px 8px 10px}
+  .kv{display:flex;justify-content:space-between;padding:7px 4px;border-top:1px dashed var(--line);font-size:14px}
+  .kv b{font-size:17px}
+  .kv .good{color:var(--teal)} .kv .bad{color:var(--red)} .kv .warn{color:var(--amber)}
+  .ghost{margin-top:8px;background:rgba(245,158,11,.08);border:1px dashed var(--amberS);border-radius:10px;padding:8px 10px;font-size:12.5px;color:var(--ice)}
+  .ghost b{color:var(--red);font-size:16px}
+  .controls{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+  button{font:inherit;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer}
+  button:hover{border-color:var(--ice)}
+  button.primary{background:#4F46E5;border-color:#4F46E5}
+  button.auto{background:var(--tealS);border-color:var(--tealS)}
+  button.kill{background:var(--redS);border-color:var(--redS)}
+  button.kill:disabled{opacity:.35;cursor:not-allowed}
+  input[type=range]{accent-color:#4F46E5;width:130px;vertical-align:middle}
+  .hint{color:var(--mut);font-size:11.5px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">Iverson <b>GPU</b></div>
+  <div class="sub">live cluster &middot; measured power &amp; thermals</div>
+  <div class="grow"></div>
+  <span id="mockbadge" class="badge mock" style="display:none">MOCK MODE</span>
+  <span id="nodecount" class="badge">0 nodes</span>
+  <span id="armed" class="badge" style="display:none">ARMED &mdash; button live</span>
+  <span class="uptime mono" id="uptime">0:00:00</span>
+</div>
+
+<div class="zones">
+  <div class="zone meas">
+    <div class="zhead"><span class="dot"></span>Measured &mdash; real watts, real &deg;C
+      <span class="why" id="esrc">energy: integrated @1Hz</span></div>
+    <div class="tiles" id="tiles"></div>
+    <canvas id="chart" height="240"></canvas>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div>
+    <div class="zone" style="margin-bottom:14px">
+      <div class="zhead" style="color:var(--ice)"><span class="dot"></span>Governance weight &lambda;</div>
+      <div class="lamwrap">
+        <div class="lamval mono" id="lam">0.850</div>
+        <div class="lamlab" id="mode">FIXED (tuned elsewhere)</div>
+        <div class="lamaction">controller: <b id="action" class="fixed">fixed</b></div>
+      </div>
+      <div class="spectrum"><div class="pin" id="pin"></div></div>
+      <div class="spectrum-cap"><span>spread &middot; resilience</span><span>pack &middot; energy</span></div>
+      <div class="kv"><span>cluster power</span><b id="totw" class="mono">&mdash;</b></div>
+      <div class="kv"><span>energy this run</span><b id="wh" class="mono">&mdash;</b></div>
+      <div class="kv"><span>hottest node vs setpoint</span><b id="tmax" class="mono">&mdash;</b></div>
+    </div>
+
+    <div class="zone mod">
+      <div class="zhead"><span class="dot"></span>Modeled &mdash; synthetic jobs
+        <span class="why">placement follows measured state</span></div>
+      <div class="kv"><span>jobs running</span><b id="jrun">0</b></div>
+      <div class="kv"><span>jobs completed</span><b id="jdone" class="good">0</b></div>
+      <div class="kv"><span>jobs lost to domain failure</span><b id="jlost" class="bad">0</b></div>
+      <div class="ghost" id="ghost" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="primary" onclick="post('/control/start')">&#9654; Start job stream</button>
+  <button class="auto" onclick="post('/control/mode',{mode:'auto'})">AUTO &mdash; self-tuning</button>
+  <button onclick="setFixed()">FIXED &lambda; = <span id="fv">0.85</span></button>
+  <input type="range" min="0.15" max="0.90" step="0.05" value="0.85" id="fslider" oninput="fv.textContent=this.value">
+  <button id="armbtn" onclick="toggleArm()">ARM the button <span class="mono">(A)</span></button>
+  <button class="kill" id="killbtn" disabled onclick="fireKill()">&#9762; KILL DOMAIN</button>
+  <button onclick="post('/control/ghost/save').then(loadGhost)">Save as ghost</button>
+  <button onclick="post('/control/reset')">Reset</button>
+</div>
+<div class="hint">Nodes join automatically when their agent reports (agents/node_agent.py). Domain = amber-tagged tiles (DOMAIN_MATCH env on the hub). Red button = any USB HID button (Enter/Space) or gamepad button; press <b>A</b> to arm. The red line is the operator&rsquo;s governance setpoint, not the silicon limit.</div>
+
+<script>
+const COLORS=['#5EEAD4','#7DD3FC','#A5B4FC','#F0ABFC','#FDBA74','#FDE68A','#86EFAC','#F9A8D4','#93C5FD','#FCD34D','#6EE7B7','#C4B5FD'];
+let armed=false, ghostData=null, setpoint=73, band=67.2;
+let knownIds=[], series={};   // id -> [temps]
+
+function tempColor(t){ if(t>=setpoint) return 'var(--red)'; if(t>=band) return 'var(--amber)'; return 'var(--line)';}
+async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):'{}'});return r.json();}
+function setFixed(){post('/control/mode',{mode:'fixed',lam:parseFloat(fslider.value)});}
+function toggleArm(){armed=!armed;document.getElementById('armed').style.display=armed?'':'none';document.getElementById('killbtn').disabled=!armed;}
+function fireKill(){ if(!armed) return; armed=false;
+  document.getElementById('armed').style.display='none';document.getElementById('killbtn').disabled=true;
+  post('/control/kill_domain'); }
+document.addEventListener('keydown',e=>{
+  if(e.key==='a'||e.key==='A'){toggleArm();}
+  else if(armed&&(e.key==='Enter'||e.key===' ')){e.preventDefault();fireKill();}
+});
+setInterval(()=>{ if(!armed) return;
+  for(const gp of (navigator.getGamepads?navigator.getGamepads():[])){
+    if(gp && gp.buttons.some(b=>b.pressed)){ fireKill(); break; }
+  }
+},120);
+
+async function loadGhost(){ const g=await(await fetch('/ghost')).json();
+  if(g.jobs_lost!=null){ghostData=g;const el=document.getElementById('ghost');el.style.display='';
+    el.innerHTML=`${g.label} &middot; saved ${g.saved_at}: lost <b>${g.jobs_lost}</b> jobs at the same failure`;}}
+loadGhost();
+
+function rebuildTiles(nodes){
+  knownIds=nodes.map(n=>n.id);
+  const tiles=document.getElementById('tiles'); tiles.innerHTML='';
+  const legend=document.getElementById('legend'); legend.innerHTML='';
+  nodes.forEach((n,i)=>{
+    const d=document.createElement('div'); d.className='tile'; d.id='tile-'+n.id;
+    d.innerHTML=`<div class="gid">${n.id}</div><div class="w"><span id="w-${n.id}">&mdash;</span><small> W</small></div>
+      <div class="t mono"><span id="t-${n.id}">&mdash;</span> &deg;C</div>`+
+      (n.domain?'<div class="dom">DOMAIN</div>':'');
+    tiles.appendChild(d);
+    const s=document.createElement('span');s.style.setProperty('--c',COLORS[i%COLORS.length]);s.textContent=n.id;legend.appendChild(s);
+  });
+  series={}; knownIds.forEach(id=>series[id]=[]);
+}
+
+function drawChart(nodes){
+  const c=document.getElementById('chart'); const W=c.width=c.clientWidth*2; const H=c.height=480;
+  const g=c.getContext('2d'); g.clearRect(0,0,W,H);
+  const y=t=>H-((t-25)/(90-25))*H;
+  g.fillStyle='rgba(245,158,11,.07)'; g.fillRect(0,y(setpoint),W,y(band)-y(setpoint));
+  g.strokeStyle='#DC2626'; g.lineWidth=3; g.setLineDash([12,7]);
+  g.beginPath(); g.moveTo(0,y(setpoint)); g.lineTo(W,y(setpoint)); g.stroke(); g.setLineDash([]);
+  g.fillStyle='#F87171'; g.font='600 22px Inter'; g.fillText('governance setpoint '+setpoint+' °C',14,y(setpoint)-10);
+  nodes.forEach((n,i)=>{
+    const win=(series[n.id]||[]).slice(-180); if(win.length<2)return;
+    g.strokeStyle=COLORS[i%COLORS.length]; g.lineWidth=2.5; g.beginPath();
+    win.forEach((t,k)=>{const px=k/(win.length-1)*W, py=y(t); k?g.lineTo(px,py):g.moveTo(px,py);});
+    g.stroke();
+  });
+}
+
+async function tick(){
+  try{
+    const m=await(await fetch('/metrics')).json();
+    const me=m.measured, ct=m.controller, mo=m.modeled;
+    setpoint=ct.setpoint_c; band=ct.band_c;
+    document.getElementById('mockbadge').style.display=me.mock?'':'none';
+    document.getElementById('esrc').textContent='energy: '+me.energy_src;
+    document.getElementById('nodecount').textContent=me.nodes.length+' nodes';
+    const up=me.uptime_s;
+    document.getElementById('uptime').textContent=`${Math.floor(up/3600)}:${String(Math.floor(up%3600/60)).padStart(2,'0')}:${String(up%60).padStart(2,'0')} live`;
+    const ids=me.nodes.map(n=>n.id);
+    if(ids.join()!==knownIds.join()) rebuildTiles(me.nodes);
+    let tot=0, wh=0, tmax=-1;
+    me.nodes.forEach(n=>{
+      tot+=n.watts; wh+=n.energy_wh;
+      if(!n.failed && !n.stale && n.temp>tmax) tmax=n.temp;
+      const w=document.getElementById('w-'+n.id), t=document.getElementById('t-'+n.id);
+      if(w) w.textContent=Math.round(n.watts);
+      if(t) t.textContent=n.temp.toFixed(1);
+      const tile=document.getElementById('tile-'+n.id);
+      if(tile){
+        tile.classList.toggle('failed',n.failed);
+        tile.classList.toggle('stale',n.stale&&!n.failed);
+        if(!n.failed&&!n.stale) tile.style.borderColor=tempColor(n.temp);
+      }
+      (series[n.id]=series[n.id]||[]).push(n.temp);
+      if(series[n.id].length>200) series[n.id].shift();
+    });
+    document.getElementById('totw').textContent=(tot/1000).toFixed(2)+' kW';
+    document.getElementById('wh').textContent=wh.toFixed(1)+' Wh';
+    const tEl=document.getElementById('tmax');
+    tEl.textContent=(tmax<0?'—':tmax.toFixed(1))+' / '+setpoint+' °C';
+    tEl.className='mono '+(tmax>setpoint?'bad':tmax>band?'warn':'good');
+    document.getElementById('lam').textContent=ct.lam.toFixed(3);
+    document.getElementById('mode').textContent=ct.mode==='auto'?'AUTO — self-tuning':'FIXED (tuned elsewhere)';
+    const a=document.getElementById('action'); a.textContent=ct.action; a.className=ct.action;
+    document.getElementById('pin').style.left=((ct.lam-0.15)/(0.90-0.15)*100)+'%';
+    document.getElementById('jrun').textContent=mo.jobs;
+    document.getElementById('jdone').textContent=mo.jobs_done;
+    document.getElementById('jlost').textContent=mo.jobs_lost;
+    drawChart(me.nodes);
+  }catch(e){/* network blip: keep last frame, never crash on stage */}
+  setTimeout(tick,1000);   // short-poll: survives the RunPod 100 s proxy cap
+}
+tick();
+</script>
+</body>
+</html>

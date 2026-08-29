@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+gpu-burn/
+ghost.json
+*.log
+.DS_Store
