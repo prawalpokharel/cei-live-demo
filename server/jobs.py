@@ -88,12 +88,17 @@ class JobManager:
                             j["state"] = "completed"
 
     # ---- agent reports (real mode) ---------------------------------------
-    def agent_status(self, statuses):
-        """statuses: [{id, elapsed, done, alive}] from a node agent."""
+    def agent_status(self, host, statuses):
+        """statuses: [{id, elapsed, done, alive}] from one node agent.
+        Guard: only the agent whose node currently OWNS a job may update it —
+        a dead process report from a failed node must not re-interrupt a job
+        already requeued to a survivor (learned in ARM-1, 2026-08-29)."""
         with self.lock:
             for st in statuses:
                 j = self.jobs.get(st["id"])
                 if not j or j["state"] != "running":
+                    continue
+                if not j["node"] or not j["node"].startswith(host + "-"):
                     continue
                 j["progress_s"] = max(j["progress_s"], float(st.get("elapsed", 0)))
                 if st.get("done"):

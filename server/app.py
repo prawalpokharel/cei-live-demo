@@ -82,7 +82,7 @@ def node_report(body: dict):
                    n.get("watts", 0), n.get("util", 0))
         ids.append(n["id"])
     if body.get("job_status"):
-        jm.agent_status(body["job_status"])
+        jm.agent_status(body.get("host", "?"), body["job_status"])
     d = reg.directives_for(ids)
     jobs = jm.jobs_for(ids)
     for nid in d:
