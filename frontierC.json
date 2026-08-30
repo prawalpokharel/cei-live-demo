@@ -60,5 +60,198 @@
   "wall_s": 140.0,
   "cost_usd": 0.1712,
   "usd_per_job": 0.00713
+ },
+ {
+  "arm": "fixed-pack",
+  "seed": 5000,
+  "kills": 1,
+  "kill_times": [
+   60
+  ],
+  "interrupts": 8,
+  "lost_gpu_s": 43.7,
+  "avg_recovery_s": 0.4,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 58.5,
+  "wall_s": 242.3,
+  "cost_usd": 0.2961,
+  "usd_per_job": 0.01234
+ },
+ {
+  "arm": "static-spread",
+  "seed": 5000,
+  "kills": 1,
+  "kill_times": [
+   60
+  ],
+  "interrupts": 6,
+  "lost_gpu_s": 30.3,
+  "avg_recovery_s": 0.4,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 75.6,
+  "wall_s": 140.8,
+  "cost_usd": 0.172,
+  "usd_per_job": 0.00717
+ },
+ {
+  "arm": "governed",
+  "seed": 5000,
+  "kills": 2,
+  "kill_times": [
+   60,
+   102
+  ],
+  "interrupts": 4,
+  "lost_gpu_s": 23.6,
+  "avg_recovery_s": 1.1,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 75.2,
+  "wall_s": 140.0,
+  "cost_usd": 0.1711,
+  "usd_per_job": 0.00713
+ },
+ {
+  "arm": "fixed-pack",
+  "seed": 5000,
+  "kills": 2,
+  "kill_times": [
+   60,
+   102
+  ],
+  "interrupts": 16,
+  "lost_gpu_s": 62.6,
+  "avg_recovery_s": 5.8,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 65.3,
+  "wall_s": 256.6,
+  "cost_usd": 0.3136,
+  "usd_per_job": 0.01307
+ },
+ {
+  "arm": "static-spread",
+  "seed": 5000,
+  "kills": 2,
+  "kill_times": [
+   60,
+   102
+  ],
+  "interrupts": 6,
+  "lost_gpu_s": 22.1,
+  "avg_recovery_s": 0.2,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 75.3,
+  "wall_s": 139.0,
+  "cost_usd": 0.1699,
+  "usd_per_job": 0.00708
+ },
+ {
+  "arm": "governed",
+  "seed": 5000,
+  "kills": 4,
+  "kill_times": [
+   60,
+   102,
+   144,
+   207
+  ],
+  "interrupts": 4,
+  "lost_gpu_s": 30.4,
+  "avg_recovery_s": 2.4,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 85.0,
+  "wall_s": 229.1,
+  "cost_usd": 0.28,
+  "usd_per_job": 0.01166
+ },
+ {
+  "arm": "fixed-pack",
+  "seed": 5000,
+  "kills": 4,
+  "kill_times": [
+   60,
+   102,
+   144,
+   207
+  ],
+  "interrupts": 26,
+  "lost_gpu_s": 117.7,
+  "avg_recovery_s": 5.3,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 66.7,
+  "wall_s": 249.5,
+  "cost_usd": 0.3049,
+  "usd_per_job": 0.01271
+ },
+ {
+  "arm": "static-spread",
+  "seed": 5000,
+  "kills": 4,
+  "kill_times": [
+   60,
+   102,
+   144,
+   207
+  ],
+  "interrupts": 6,
+  "lost_gpu_s": 26.4,
+  "avg_recovery_s": 0.5,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 84.9,
+  "wall_s": 228.5,
+  "cost_usd": 0.2792,
+  "usd_per_job": 0.01163
+ },
+ {
+  "arm": "governed",
+  "seed": 5001,
+  "kills": 0,
+  "kill_times": [],
+  "interrupts": 0,
+  "lost_gpu_s": 0.0,
+  "avg_recovery_s": null,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 74.7,
+  "wall_s": 129.4,
+  "cost_usd": 0.1582,
+  "usd_per_job": 0.00659
+ },
+ {
+  "arm": "fixed-pack",
+  "seed": 5001,
+  "kills": 0,
+  "kill_times": [],
+  "interrupts": 0,
+  "lost_gpu_s": 0.0,
+  "avg_recovery_s": null,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 54.1,
+  "wall_s": 225.5,
+  "cost_usd": 0.2756,
+  "usd_per_job": 0.01149
+ },
+ {
+  "arm": "static-spread",
+  "seed": 5001,
+  "kills": 0,
+  "kill_times": [],
+  "interrupts": 0,
+  "lost_gpu_s": 0.0,
+  "avg_recovery_s": null,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 76.6,
+  "wall_s": 128.0,
+  "cost_usd": 0.1564,
+  "usd_per_job": 0.00652
  }
 ]

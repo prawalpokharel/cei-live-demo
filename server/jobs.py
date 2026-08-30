@@ -110,6 +110,10 @@ class JobManager:
                     continue
                 j["progress_s"] = max(j["progress_s"], float(st.get("elapsed", 0)))
                 j["ckpt_s"] = max(j["ckpt_s"], float(st.get("ckpt", 0)))
+                j["ckpt_writes"] = max(j.get("ckpt_writes", 0),
+                                       int(st.get("ckpt_writes", 0)))
+                j["ckpt_cost_s"] = max(j.get("ckpt_cost_s", 0.0),
+                                       float(st.get("ckpt_cost_s", 0.0)))
                 if st.get("done"):
                     j["state"] = "completed"
                 elif not st.get("alive", True):
@@ -147,14 +151,35 @@ class JobManager:
                     hit += 1
             return hit, running
 
+    # ---- checkpoint policy (experiment #7) -------------------------------
+    # "default"    -> jobs use their own CKPT_EVERY_S default (10 s)
+    # "fixed:N"    -> every job checkpoints every N s
+    # "adaptive"   -> jobs on declared-domain (fragile) nodes checkpoint
+    #                 every 5 s, all others every 45 s — checkpoint effort
+    #                 follows declared criticality
+    ckpt_policy = "default"
+    domain_ids = frozenset()          # app.py refreshes from the registry
+
+    def ckpt_interval_for(self, nid):
+        p = self.ckpt_policy
+        if p.startswith("fixed:"):
+            return float(p.split(":", 1)[1])
+        if p == "adaptive":
+            return 5.0 if nid in self.domain_ids else 45.0
+        return None
+
     # ---- directives for one agent ----------------------------------------
     def jobs_for(self, node_ids):
         with self.lock:
-            return {nid: [{"id": j["id"], "seconds": j["duration_s"],
-                           "resume_s": j["ckpt_s"]}
-                          for j in self.jobs.values()
-                          if j["state"] == "running" and j["node"] == nid]
-                    for nid in node_ids}
+            out = {}
+            for nid in node_ids:
+                ck = self.ckpt_interval_for(nid)
+                out[nid] = [{"id": j["id"], "seconds": j["duration_s"],
+                             "resume_s": j["ckpt_s"],
+                             **({"ckpt_every_s": ck} if ck else {})}
+                            for j in self.jobs.values()
+                            if j["state"] == "running" and j["node"] == nid]
+            return out
 
     def reset(self, seed=None):
         with self.lock:
@@ -183,6 +208,11 @@ class JobManager:
                 "completed": by("completed"),
                 "interrupted_events": self.interrupted_events,
                 "lost_gpu_seconds": round(self.lost_gpu_s, 1),
+                "ckpt_policy": self.ckpt_policy,
+                "ckpt_writes": sum(j.get("ckpt_writes", 0)
+                                   for j in self.jobs.values()),
+                "ckpt_cost_s": round(sum(j.get("ckpt_cost_s", 0.0)
+                                         for j in self.jobs.values()), 2),
                 "avg_recovery_s": round(sum(self.recoveries) /
                                         len(self.recoveries), 1)
                                   if self.recoveries else None,

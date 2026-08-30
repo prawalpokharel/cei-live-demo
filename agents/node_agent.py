@@ -98,6 +98,12 @@ class JobRunner:
     def __init__(self):
         self.procs = {}          # job_id -> {popen, node}
         os.makedirs(PDIR, exist_ok=True)
+        try:
+            # a stale cached job script from an earlier hub version must
+            # never outlive an agent restart (cost a shakedown, 2026-08-30)
+            os.remove(JOB_SCRIPT)
+        except Exception:
+            pass
         self._fetch_script()
 
     def _fetch_script(self):
@@ -128,7 +134,8 @@ class JobRunner:
                         # keep entry until reported dead once
                 continue
             for j in d.get("jobs", []):
-                want[j["id"]] = (nid, j["seconds"], j.get("resume_s", 0))
+                want[j["id"]] = (nid, j["seconds"], j.get("resume_s", 0),
+                                 j.get("ckpt_every_s"))
         self._fetch_script()
         # Two-way reconcile with a GRACE PERIOD: a live process is only a
         # stray if the hub has not wanted it for 3 consecutive cycles (kills
@@ -150,7 +157,7 @@ class JobRunner:
                     os.remove(os.path.join(PDIR, jid + ".json"))
                 except Exception:
                     pass
-        for jid, (nid, seconds, resume_s) in want.items():
+        for jid, (nid, seconds, resume_s, ckpt_every) in want.items():
             if jid in self.procs and self.procs[jid]["popen"].poll() is None:
                 continue
             if jid in self.procs:
@@ -161,6 +168,8 @@ class JobRunner:
                        RESUME_S=str(resume_s),
                        DEVICE=("cpu" if (ALLOW_CPU and MOCK_GPUS) else dev),
                        PROGRESS_DIR=PDIR)
+            if ckpt_every:
+                env["CKPT_EVERY_S"] = str(ckpt_every)
             try:
                 # stale heartbeat from a previous trial with a reused job id
                 # must never be read as this process's status
@@ -178,7 +187,7 @@ class JobRunner:
     def statuses(self):
         out = []
         for jid, rec in list(self.procs.items()):
-            elapsed, done = 0.0, False
+            elapsed, done, hb = 0.0, False, {}
             try:
                 with open(os.path.join(PDIR, jid + ".json")) as f:
                     hb = json.load(f)
@@ -191,6 +200,8 @@ class JobRunner:
             if not alive and rc != 0:
                 print(f"DEBUG dead {jid} rc={rc}", flush=True)
             out.append({"id": jid, "elapsed": elapsed, "ckpt": ckpt,
+                        "ckpt_writes": hb.get("ckpt_writes", 0),
+                        "ckpt_cost_s": hb.get("ckpt_cost_s", 0.0),
                         "done": done or (rc == 0), "alive": alive})
             if not alive:
                 del self.procs[jid]                 # reported once, forget

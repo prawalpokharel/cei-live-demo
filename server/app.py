@@ -43,16 +43,46 @@ jm = JobManager(reg, mock=MOCK)
 mock = LocalMockSource(reg) if MOCK else None
 
 
+# ---- telemetry poisoning (experiment #9) --------------------------------
+# The controller's VIEW of temperature can be delayed, dropped, or offset;
+# the raw ledger (energy, dashboards, job accounting) always stays real.
+import collections
+import random as _random
+
+POISON = {"delay_s": 0.0, "drop_pct": 0.0}
+_hist = collections.defaultdict(lambda: collections.deque(maxlen=90))
+_poison_rng = _random.Random(4242)
+_last_seen = {}
+
+
+def _controller_temps():
+    now = time.time()
+    temps = []
+    for n in reg.healthy():
+        _hist[n.id].append((now, n.temp))
+        t = n.temp
+        if POISON["delay_s"] > 0:
+            cutoff = now - POISON["delay_s"]
+            aged = [v for ts, v in _hist[n.id] if ts <= cutoff]
+            t = aged[-1] if aged else _hist[n.id][0][1]
+        if POISON["drop_pct"] > 0 and _poison_rng.random() * 100 < POISON["drop_pct"]:
+            t = _last_seen.get(n.id, t)     # dropped report: view freezes
+        _last_seen[n.id] = t
+        temps.append(t)
+    return temps
+
+
 def _loop():
     last_epoch = 0.0
     while True:
         if mock:
             mock.tick()
         jm.tick(sched.running)
+        jm.domain_ids = frozenset(reg.domain_ids())   # adaptive ckpt (#7)
         now = time.time()
         if now - last_epoch >= EPOCH_S:
             last_epoch = now
-            temps = [n.temp for n in reg.healthy()]
+            temps = _controller_temps()
             lam = ctl.step(max(temps) if temps else 0.0)
             if sched.running:
                 active = ([n.id for n in reg.healthy()] if sched.random_place
@@ -143,6 +173,22 @@ def reset(body: dict = None):
     jm.reset(seed=(body or {}).get("seed"))
     sched.running = False
     return {"ok": True}
+
+
+@app.post("/control/ckpt")
+def ckpt_policy(body: dict = None):
+    """Experiment #7: checkpoint policy = default | fixed:<sec> | adaptive."""
+    jm.ckpt_policy = (body or {}).get("policy", "default")
+    return {"ok": True, "ckpt_policy": jm.ckpt_policy}
+
+
+@app.post("/control/telemetry")
+def telemetry_poison(body: dict = None):
+    """Experiment #9: poison the CONTROLLER's temperature view only."""
+    b = body or {}
+    POISON["delay_s"] = float(b.get("delay_s", 0.0))
+    POISON["drop_pct"] = float(b.get("drop_pct", 0.0))
+    return {"ok": True, **POISON}
 
 
 @app.post("/control/revive")

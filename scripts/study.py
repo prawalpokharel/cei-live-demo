@@ -62,6 +62,14 @@ def kill_time_for(seed):
     return 60 + (seed * 37) % 61          # deterministic 60–120 s per seed
 
 
+def kill_target_for(seed, choices):
+    """Seeded post-placement draw of the failure location (experiment #1:
+    the scheduler is never told which domain the failure will hit).
+    A choice containing '+' fails several tiers at once (correlated
+    multi-component failure, experiment #8)."""
+    return choices[(seed * 13) % len(choices)]
+
+
 def run_trial(hub, arm, spec, seed, rate_usd_hr, kill_match=None):
     kill_t = kill_time_for(seed)
     call(hub, "/control/reset", {"seed": seed})
@@ -74,8 +82,16 @@ def run_trial(hub, arm, spec, seed, rate_usd_hr, kill_match=None):
     time.sleep(max(0, kill_t - 3))
     pre = call(hub, "/metrics")["jobs"]          # running-at-kill denominator
     time.sleep(3)
-    kill = call(hub, "/control/kill_domain",
-                {"match": kill_match} if kill_match else {})
+    if kill_match and "+" in kill_match:         # correlated: fail all parts
+        kill = {"jobs_interrupted_now": 0, "jobs_running_now": 0}
+        for part in kill_match.split("+"):
+            k = call(hub, "/control/kill_domain", {"match": part})
+            kill["jobs_interrupted_now"] += k.get("jobs_interrupted_now") or 0
+            kill["jobs_running_now"] = max(kill["jobs_running_now"],
+                                           k.get("jobs_running_now") or 0)
+    else:
+        kill = call(hub, "/control/kill_domain",
+                    {"match": kill_match} if kill_match else {})
     # drain: wait for all jobs to reach a terminal state (max 300 s)
     deadline = time.time() + 300
     j = None
@@ -107,6 +123,8 @@ def run_trial(hub, arm, spec, seed, rate_usd_hr, kill_match=None):
         "avg_recovery_s": j["avg_recovery_s"],
         "submitted": j["submitted"], "completed": j["completed"],
         "all_done": j.get("all_done", False),
+        "ckpt_writes": j.get("ckpt_writes", 0),
+        "ckpt_cost_s": j.get("ckpt_cost_s", 0.0),
         "energy_wh": round(energy(m1) - e0, 1),
         "wall_s": round(wall, 1),
         "cost_usd": round(wall / 3600 * rate_usd_hr, 3),
@@ -132,6 +150,17 @@ def main():
     ap.add_argument("--kill-match", default=None,
                     help="fail this node-id substring instead of the declared "
                          "domain (undeclared-domain robustness condition)")
+    ap.add_argument("--kill-choices", default=None,
+                    help="comma-separated failure locations; each trial's "
+                         "location is drawn from these by seed AFTER placement "
+                         "and never revealed to the scheduler (exp #1). Use "
+                         "'+' inside a choice for correlated failures (exp #8)")
+    ap.add_argument("--ckpt", default=None,
+                    help="checkpoint policy for all trials: fixed:<sec> or "
+                         "adaptive (exp #7); default leaves hub policy alone")
+    ap.add_argument("--telemetry", default=None,
+                    help="telemetry poisoning 'delay:<s>,drop:<pct>' applied "
+                         "to the controller's view for all trials (exp #9)")
     ap.add_argument("--seed-base", type=int, default=1000)
     ap.add_argument("--out", default="study_results.json")
     args = ap.parse_args()
@@ -139,13 +168,32 @@ def main():
     arms = [a for a in args.arms.split(",") if a in ARMS]
     seeds = [args.seed_base + t for t in range(args.trials)]
 
+    choices = ([c for c in args.kill_choices.split(",") if c]
+               if args.kill_choices else None)
+    # Always (re)set both policies so chained studies never inherit the
+    # previous study's checkpoint or poisoning configuration.
+    try:
+        call(hub, "/control/ckpt", {"policy": args.ckpt or "default"})
+        tp = (dict(kv.split(":") for kv in args.telemetry.split(","))
+              if args.telemetry else {})
+        call(hub, "/control/telemetry",
+             {"delay_s": float(tp.get("delay", 0)),
+              "drop_pct": float(tp.get("drop", 0))})
+    except Exception:
+        print("!! hub predates /control/ckpt|telemetry; flags ignored",
+              flush=True)
+
     results = []
     for seed in seeds:                       # paired: every arm sees each seed
+        target = (kill_target_for(seed, choices) if choices
+                  else args.kill_match)
         for arm in arms:
             print(f"== trial seed={seed} arm={arm} "
-                  f"(kill at T+{kill_time_for(seed)}s) ==", flush=True)
+                  f"(kill at T+{kill_time_for(seed)}s, target="
+                  f"{target or 'declared domain'}) ==", flush=True)
             r = run_trial(hub, arm, ARMS[arm], seed, args.rate,
-                          kill_match=args.kill_match)
+                          kill_match=target)
+            r["kill_target"] = target or "declared-domain"
             results.append(r)
             print("   ", {k: r[k] for k in
                           ("running_at_kill", "interrupted_at_kill",
