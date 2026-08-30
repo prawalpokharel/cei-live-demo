@@ -30,8 +30,14 @@ ARMS = {
     "random": {"mode": "fixed", "lam": 0.15, "placement": "random"},
     "ablation": {"mode": "auto", "lam": 0.85, "centrality": False},
 }
+# t(n-1) 97.5th percentile, keyed by n. The old table stopped at n=10 and
+# fell back to z=1.96, which silently narrowed every CI for n>=11 (caught
+# in external review of the v3 study — rig A ran n=12).
 T95 = {2: 12.71, 3: 4.303, 4: 3.182, 5: 2.776, 6: 2.571, 7: 2.447,
-       8: 2.365, 9: 2.306, 10: 2.262}
+       8: 2.365, 9: 2.306, 10: 2.262, 11: 2.228, 12: 2.201, 13: 2.179,
+       14: 2.160, 15: 2.145, 16: 2.131, 18: 2.110, 20: 2.093, 21: 2.086,
+       25: 2.064, 26: 2.060, 30: 2.045, 31: 2.042, 41: 2.021, 51: 2.009,
+       61: 2.000, 101: 1.984}
 
 
 def call(hub, path, body=None, timeout=15, retries=3):
