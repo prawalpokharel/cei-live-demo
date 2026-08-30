@@ -57,8 +57,22 @@ A2_ID=$(make_pod "$PFX-hub-a2" 4 "22/tcp")           || { cleanup; exit 1; }
 B_ID=$(make_pod "$PFX-domain-b" 2 "22/tcp")          || { cleanup; exit 1; }
 
 echo "$A_ID $A2_ID $B_ID" > "${PODS_FILE:-.pods}"
+
+# Reconcile: a GPU-type ladder create can time out (make_pod moves on) yet the
+# pod materializes seconds later as an ORPHAN that bills forever. Delete any
+# pod carrying our prefix that is NOT one of the three we kept.
+KEEP=" $A_ID $A2_ID $B_ID "
+runpodctl pod list -o json 2>/dev/null | python3 -c '
+import json, sys
+keep = set(sys.argv[1].split())
+pfx = sys.argv[2]
+for p in json.load(sys.stdin):
+    if str(p.get("name","")).startswith(pfx) and p["id"] not in keep:
+        print(p["id"])
+' "$A_ID $A2_ID $B_ID" "$PFX" | while read -r orphan; do
+  [ -n "$orphan" ] && { echo "!! deleting orphan $orphan" >&2; runpodctl pod delete "$orphan" >&2 || true; }
+done
+
 echo
 echo "Three pods up (per-second billing started). Hub: https://${A_ID}-8000.proxy.runpod.net"
-echo "Reconcile check (any cei-* pod NOT in .pods is an orphan to delete):"
-runpodctl pod list 2>/dev/null | grep -o '"name": *"cei-[^"]*"' || true
 echo "When finished:  scripts/rent-down.sh"
