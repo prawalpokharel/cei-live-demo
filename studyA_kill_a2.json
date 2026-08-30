@@ -1,0 +1,198 @@
+{
+ "trials": [
+  {
+   "arm": "governed",
+   "seed": 3000,
+   "kill_t": 101,
+   "running_at_kill": 8,
+   "interrupted_at_kill": 4,
+   "interrupt_rate_pct": 50.0,
+   "interrupts": 4,
+   "lost_gpu_s": 17.6,
+   "avg_recovery_s": 2.7,
+   "submitted": 24,
+   "completed": 24,
+   "all_done": true,
+   "energy_wh": 91.2,
+   "wall_s": 150.2,
+   "cost_usd": 0.184
+  },
+  {
+   "arm": "fixed-pack",
+   "seed": 3000,
+   "kill_t": 101,
+   "running_at_kill": 8,
+   "interrupted_at_kill": 0,
+   "interrupt_rate_pct": 0.0,
+   "interrupts": 0,
+   "lost_gpu_s": 0.0,
+   "avg_recovery_s": null,
+   "submitted": 24,
+   "completed": 24,
+   "all_done": true,
+   "energy_wh": 54.6,
+   "wall_s": 240.7,
+   "cost_usd": 0.294
+  },
+  {
+   "arm": "governed",
+   "seed": 3001,
+   "kill_t": 77,
+   "running_at_kill": 21,
+   "interrupted_at_kill": 8,
+   "interrupt_rate_pct": 38.1,
+   "interrupts": 8,
+   "lost_gpu_s": 44.6,
+   "avg_recovery_s": 2.3,
+   "submitted": 24,
+   "completed": 24,
+   "all_done": true,
+   "energy_wh": 82.0,
+   "wall_s": 147.7,
+   "cost_usd": 0.18
+  },
+  {
+   "arm": "fixed-pack",
+   "seed": 3001,
+   "kill_t": 77,
+   "running_at_kill": 6,
+   "interrupted_at_kill": 0,
+   "interrupt_rate_pct": 0.0,
+   "interrupts": 0,
+   "lost_gpu_s": 0.0,
+   "avg_recovery_s": null,
+   "submitted": 24,
+   "completed": 24,
+   "all_done": true,
+   "energy_wh": 57.6,
+   "wall_s": 243.6,
+   "cost_usd": 0.298
+  },
+  {
+   "arm": "governed",
+   "seed": 3002,
+   "kill_t": 114,
+   "running_at_kill": 2,
+   "interrupted_at_kill": 2,
+   "interrupt_rate_pct": 100.0,
+   "interrupts": 2,
+   "lost_gpu_s": 11.1,
+   "avg_recovery_s": 2.4,
+   "submitted": 24,
+   "completed": 24,
+   "all_done": true,
+   "energy_wh": 82.4,
+   "wall_s": 142.1,
+   "cost_usd": 0.174
+  },
+  {
+   "arm": "fixed-pack",
+   "seed": 3002,
+   "kill_t": 114,
+   "running_at_kill": 8,
+   "interrupted_at_kill": 0,
+   "interrupt_rate_pct": 0.0,
+   "interrupts": 0,
+   "lost_gpu_s": 0.0,
+   "avg_recovery_s": null,
+   "submitted": 24,
+   "completed": 24,
+   "all_done": true,
+   "energy_wh": 52.0,
+   "wall_s": 226.4,
+   "cost_usd": 0.277
+  },
+  {
+   "arm": "governed",
+   "seed": 3003,
+   "kill_t": 90,
+   "running_at_kill": 20,
+   "interrupted_at_kill": 7,
+   "interrupt_rate_pct": 35.0,
+   "interrupts": 7,
+   "lost_gpu_s": 38.7,
+   "avg_recovery_s": 3.0,
+   "submitted": 24,
+   "completed": 24,
+   "all_done": true,
+   "energy_wh": 87.0,
+   "wall_s": 155.1,
+   "cost_usd": 0.19
+  },
+  {
+   "arm": "fixed-pack",
+   "seed": 3003,
+   "kill_t": 90,
+   "running_at_kill": 7,
+   "interrupted_at_kill": 0,
+   "interrupt_rate_pct": 0.0,
+   "interrupts": 0,
+   "lost_gpu_s": 0.0,
+   "avg_recovery_s": null,
+   "submitted": 24,
+   "completed": 24,
+   "all_done": true,
+   "energy_wh": 56.9,
+   "wall_s": 247.0,
+   "cost_usd": 0.302
+  }
+ ],
+ "summary": {
+  "governed": {
+   "interrupt_rate_pct": [
+    55.775,
+    48.02262041235532
+   ],
+   "interrupts": [
+    5.25,
+    4.381272370366094
+   ],
+   "lost_gpu_s": [
+    28.0,
+    25.716847094333577
+   ],
+   "recovery_s": [
+    2.6,
+    0.5031183757327893
+   ],
+   "completed": [
+    24.0,
+    0.0
+   ],
+   "energy_wh": [
+    85.65,
+    6.905135511824996
+   ],
+   "wh_per_job": 3.56875,
+   "jobs_per_usd": 131.86813186813188
+  },
+  "fixed-pack": {
+   "interrupt_rate_pct": [
+    0.0,
+    0.0
+   ],
+   "interrupts": [
+    0.0,
+    0.0
+   ],
+   "lost_gpu_s": [
+    0.0,
+    0.0
+   ],
+   "recovery_s": [
+    NaN,
+    0
+   ],
+   "completed": [
+    24.0,
+    0.0
+   ],
+   "energy_wh": [
+    55.275,
+    4.027828423501511
+   ],
+   "wh_per_job": 2.303125,
+   "jobs_per_usd": 81.98121263877027
+  }
+ }
+}

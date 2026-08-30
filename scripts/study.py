@@ -83,10 +83,16 @@ def run_trial(hub, arm, spec, seed, rate_usd_hr, kill_match=None):
     wall = time.time() - t0
     j = m1["jobs"]
     at_kill = kill.get("jobs_interrupted_now") or 0
-    run_at_kill = pre.get("running") or 0
+    # Same-instant denominator from the kill response (hubs >= v3.1); the
+    # T-3s /metrics sample is only a fallback — arrivals in that window can
+    # push the fraction above 100%, which is why the same-instant count
+    # exists (the v3 study's ">100% interruption rate" artifact).
+    run_at_kill = kill.get("jobs_running_now") or pre.get("running") or 0
     return {
         "arm": arm, "seed": seed, "kill_t": kill_t,
         "running_at_kill": run_at_kill,
+        "running_denominator": ("same-instant" if kill.get("jobs_running_now")
+                                else "T-3s sample"),
         "interrupted_at_kill": at_kill,
         "interrupt_rate_pct": round(100 * at_kill / run_at_kill, 1)
                               if run_at_kill else None,

@@ -6,7 +6,14 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 IMG="${IMG:-runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2404}"
-GPUS=("NVIDIA A40" "NVIDIA RTX A6000" "NVIDIA GeForce RTX 4090" "NVIDIA L40S" "NVIDIA A100 80GB PCIe")
+# GPU ladder is overridable: GPU_LADDER="NVIDIA L40S|NVIDIA GeForce RTX 4090" (pipe-sep)
+# POD_PREFIX renames the pods (default cei) so two rigs can coexist.
+if [ -n "${GPU_LADDER:-}" ]; then
+  IFS='|' read -r -a GPUS <<< "$GPU_LADDER"
+else
+  GPUS=("NVIDIA A40" "NVIDIA RTX A6000" "NVIDIA GeForce RTX 4090" "NVIDIA L40S" "NVIDIA A100 80GB PCIe")
+fi
+PFX="${POD_PREFIX:-cei}"
 
 pod_id() { python3 -c '
 import json, sys
@@ -45,11 +52,11 @@ cleanup() {
   runpodctl pod list >&2
 }
 
-A_ID=$(make_pod cei-hub-a 4 "8000/http,22/tcp")   || { cleanup; exit 1; }
-A2_ID=$(make_pod cei-hub-a2 4 "22/tcp")           || { cleanup; exit 1; }
-B_ID=$(make_pod cei-domain-b 2 "22/tcp")          || { cleanup; exit 1; }
+A_ID=$(make_pod "$PFX-hub-a" 4 "8000/http,22/tcp")   || { cleanup; exit 1; }
+A2_ID=$(make_pod "$PFX-hub-a2" 4 "22/tcp")           || { cleanup; exit 1; }
+B_ID=$(make_pod "$PFX-domain-b" 2 "22/tcp")          || { cleanup; exit 1; }
 
-echo "$A_ID $A2_ID $B_ID" > .pods
+echo "$A_ID $A2_ID $B_ID" > "${PODS_FILE:-.pods}"
 echo
 echo "Three pods up (per-second billing started). Hub: https://${A_ID}-8000.proxy.runpod.net"
 echo "Reconcile check (any cei-* pod NOT in .pods is an orphan to delete):"

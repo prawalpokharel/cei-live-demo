@@ -132,8 +132,9 @@ def mode(body: dict):
 def kill_domain(body: dict = None):
     match = (body or {}).get("match")
     ids = set(reg.fail_match(match) if match else reg.fail_domain())
-    hit = jm.fail_nodes(ids)
-    return {"ok": True, "jobs_interrupted_now": hit, "failed_nodes": sorted(ids)}
+    hit, running = jm.fail_nodes(ids)
+    return {"ok": True, "jobs_interrupted_now": hit,
+            "jobs_running_now": running, "failed_nodes": sorted(ids)}
 
 
 @app.post("/control/reset")
@@ -141,6 +142,16 @@ def reset(body: dict = None):
     reg.reset()
     jm.reset(seed=(body or {}).get("seed"))
     sched.running = False
+    return {"ok": True}
+
+
+@app.post("/control/revive")
+def revive():
+    """Clear node failed flags WITHOUT touching jobs — models a transient
+    failure (node reboots, rejoins the pool). Lets the failure-rate
+    frontier study inject several failures per trial against the same
+    domain instead of exhausting distinct targets."""
+    reg.reset()
     return {"ok": True}
 
 

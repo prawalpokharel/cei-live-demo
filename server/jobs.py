@@ -131,13 +131,21 @@ class JobManager:
 
     # ---- node failure (the red button) -----------------------------------
     def fail_nodes(self, node_ids):
+        """Returns (interrupted_now, running_at_kill) counted at the SAME
+        instant, so interruption fraction has a same-instant denominator —
+        a denominator sampled even seconds earlier can be exceeded when
+        jobs arrive in the window (the v3 study's >100% artifact)."""
         with self.lock:
             hit = 0
+            running = 0
             for j in self.jobs.values():
-                if j["state"] == "running" and j["node"] in node_ids:
+                if j["state"] != "running":
+                    continue
+                running += 1
+                if j["node"] in node_ids:
                     self._interrupt(j)
                     hit += 1
-            return hit
+            return hit, running
 
     # ---- directives for one agent ----------------------------------------
     def jobs_for(self, node_ids):
