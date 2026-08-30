@@ -54,6 +54,12 @@ _hist = collections.defaultdict(lambda: collections.deque(maxlen=90))
 _poison_rng = _random.Random(4242)
 _last_seen = {}
 
+# Auto-evacuation state (exp #6) — MUST be defined before _loop, which the
+# background thread starts running at import; referencing it from a later
+# module position crashed the loop thread with NameError (no arrivals).
+AUTO_EVAC = {"on": False, "threshold": 0.55, "consecutive": 4}
+_gp_low = {}
+
 
 def _controller_temps():
     now = time.time()
@@ -129,6 +135,12 @@ def job_script():
                         media_type="text/x-python")
 
 
+@app.get("/svcscript")
+def svc_script():
+    return FileResponse(os.path.join(HERE, "..", "jobs", "svc_writer.py"),
+                        media_type="text/x-python")
+
+
 # ---- agent report + pull-based actuation --------------------------------
 @app.post("/telemetry/node")
 def node_report(body: dict):
@@ -194,6 +206,16 @@ def reset(body: dict = None):
     return {"ok": True}
 
 
+@app.post("/control/probe")
+def probe(body: dict = None):
+    """Exp #2: suspend everything on matching nodes so the DEPENDENCY
+    response of the rest of the cluster can be measured.
+    {"match": "-g2", "on": true|false}"""
+    b = body or {}
+    ids = reg.probe_match(b.get("match", ""), b.get("on", True))
+    return {"ok": True, "probed": ids, "on": b.get("on", True)}
+
+
 @app.post("/control/degrade")
 def degrade(body: dict = None):
     """Exp #6: mark nodes degraded — agents apply a REAL clock-lock there.
@@ -211,10 +233,6 @@ def evacuate(body: dict = None):
     ids = reg.cordon_match(b.get("match", ""), b.get("on", True))
     moved = jm.evacuate_nodes(set(ids)) if b.get("on", True) else 0
     return {"ok": True, "cordoned": ids, "jobs_evacuated": moved}
-
-
-AUTO_EVAC = {"on": False, "threshold": 0.55, "consecutive": 4}
-_gp_low = {}
 
 
 @app.post("/control/auto_evacuate")

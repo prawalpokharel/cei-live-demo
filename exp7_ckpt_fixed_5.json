@@ -1,0 +1,23 @@
+[
+ {
+  "arm": "governed",
+  "seed": 6200,
+  "kill_t": 100,
+  "running_at_kill": 0,
+  "running_denominator": "T-3s sample",
+  "interrupted_at_kill": 0,
+  "interrupt_rate_pct": null,
+  "interrupts": 0,
+  "lost_gpu_s": 0.0,
+  "avg_recovery_s": null,
+  "submitted": 0,
+  "completed": 0,
+  "all_done": false,
+  "ckpt_writes": 0,
+  "ckpt_cost_s": 0,
+  "energy_wh": 29.2,
+  "wall_s": 402.8,
+  "cost_usd": 0.492,
+  "kill_target": "declared-domain"
+ }
+]

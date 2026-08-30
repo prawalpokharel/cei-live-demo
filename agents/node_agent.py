@@ -32,6 +32,13 @@ MOCK_GPUS = int(os.environ.get("MOCK_GPUS", "0"))
 ALLOW_CPU = os.environ.get("ALLOW_CPU", "0") == "1"
 PDIR = os.environ.get("PROGRESS_DIR", "/tmp/cei-jobs-" + HOST)
 JOB_SCRIPT = os.environ.get("JOB_SCRIPT", "/tmp/cei_gpu_job.py")
+# Exp #2 (hidden dependencies): SVC_MAP="2:svc0,5:svc1" pins one real
+# service process to each listed GPU index; DEP_SVCS lists their token
+# files, and 2/3 of jobs (deterministically by job number) depend on one.
+# The hub is never told any of this.
+SVC_MAP = os.environ.get("SVC_MAP", "")
+DEP_SVCS = [p for p in os.environ.get("DEP_SVCS", "").split(",") if p]
+SVC_SCRIPT = os.environ.get("SVC_SCRIPT", "/tmp/cei_svc_writer.py")
 
 _T_IDLE, _T_BURN = 31.0, 80.0
 _W_IDLE, _W_BURN = 16.0, 430.0
@@ -121,6 +128,56 @@ class JobRunner:
             pass                                    # retried next reconcile
 
     degraded_now = set()
+    probed_now = set()
+    svcs = {}            # node_id -> {popen, token}
+
+    def _spawn_svcs(self, skip_nodes=()):
+        if not SVC_MAP:
+            return
+        if not os.path.exists(SVC_SCRIPT):
+            try:
+                req = urllib.request.Request(
+                    HUB + "/svcscript",
+                    headers={"User-Agent": "cei-node-agent/2.0"})
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    data = r.read()
+                if data.startswith(b"#!/usr/bin/env python"):
+                    with open(SVC_SCRIPT, "wb") as f:
+                        f.write(data)
+            except Exception:
+                return
+        for part in SVC_MAP.split(","):
+            idx, name = part.split(":")
+            nid = f"{HOST}-g{idx}"
+            token = f"/tmp/cei-deps/{name}.tok"
+            if nid in skip_nodes:            # a failed node's service stays
+                continue                     # dead until the node revives
+            rec = self.svcs.get(nid)
+            if rec and rec["popen"].poll() is None:
+                continue
+            try:
+                self.svcs[nid] = {"token": token, "popen": subprocess.Popen(
+                    [sys.executable, SVC_SCRIPT],
+                    env=dict(os.environ, SVC_TOKEN=token),
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)}
+                print(f"SVC up {name} on {nid}", flush=True)
+            except Exception as e:
+                print(f"svc spawn failed {name}: {e}", flush=True)
+
+    def _signal_node(self, nid, sig):
+        """SIGSTOP/SIGCONT every process (jobs + services) on one node."""
+        for jid, rec in self.procs.items():
+            if rec["node"] == nid and rec["popen"].poll() is None:
+                try:
+                    rec["popen"].send_signal(sig)
+                except Exception:
+                    pass
+        rec = self.svcs.get(nid)
+        if rec and rec["popen"].poll() is None:
+            try:
+                rec["popen"].send_signal(sig)
+            except Exception:
+                pass
 
     def _apply_degrade(self, nid, on):
         """Exp #6: a REAL straggler — lock the GPU's core clock low. The
@@ -138,6 +195,8 @@ class JobRunner:
             print(f"degrade failed {nid}: {e}", flush=True)
 
     def reconcile(self, directives):
+        failed_now = {nid for nid, d in directives.items() if d.get("failed")}
+        self._spawn_svcs(failed_now)     # keep services up; not on dead nodes
         want = {}                        # job_id -> (node, seconds, resume_s)
         for nid, d in directives.items():
             wants_degrade = bool(d.get("degraded"))
@@ -145,6 +204,14 @@ class JobRunner:
                 self._apply_degrade(nid, wants_degrade)
                 (self.degraded_now.add(nid) if wants_degrade
                  else self.degraded_now.discard(nid))
+            wants_probe = bool(d.get("probed"))
+            if wants_probe != (nid in self.probed_now):
+                self._signal_node(nid, signal.SIGSTOP if wants_probe
+                                  else signal.SIGCONT)
+                print(f"PROBE {'stop' if wants_probe else 'cont'} {nid}",
+                      flush=True)
+                (self.probed_now.add(nid) if wants_probe
+                 else self.probed_now.discard(nid))
             if d.get("failed"):
                 for jid, rec in list(self.procs.items()):
                     if rec["node"] == nid:
@@ -154,6 +221,14 @@ class JobRunner:
                         except Exception:
                             pass
                         # keep entry until reported dead once
+                svc = self.svcs.get(nid)
+                if svc and svc["popen"].poll() is None:
+                    # the node's SERVICE dies with it — the real cascade
+                    try:
+                        svc["popen"].send_signal(signal.SIGKILL)
+                        print(f"SVC KILLED with node {nid}", flush=True)
+                    except Exception:
+                        pass
                 continue
             for j in d.get("jobs", []):
                 want[j["id"]] = (nid, j["seconds"], j.get("resume_s", 0),
@@ -192,6 +267,13 @@ class JobRunner:
                        PROGRESS_DIR=PDIR)
             if ckpt_every:
                 env["CKPT_EVERY_S"] = str(ckpt_every)
+            if DEP_SVCS:
+                try:
+                    i = int("".join(c for c in jid if c.isdigit()) or 0)
+                except Exception:
+                    i = 0
+                if i % 3 != 0:           # 2/3 of jobs carry a hidden dep
+                    env["DEP_TOKEN"] = DEP_SVCS[i % len(DEP_SVCS)]
             try:
                 # stale heartbeat from a previous trial with a reused job id
                 # must never be read as this process's status

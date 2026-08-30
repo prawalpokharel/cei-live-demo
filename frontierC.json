@@ -322,5 +322,61 @@
   "wall_s": 128.2,
   "cost_usd": 0.1567,
   "usd_per_job": 0.00653
+ },
+ {
+  "arm": "fixed-pack",
+  "seed": 5001,
+  "kills": 2,
+  "kill_times": [
+   49,
+   91
+  ],
+  "interrupts": 16,
+  "lost_gpu_s": 50.8,
+  "avg_recovery_s": 6.1,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 60.0,
+  "wall_s": 224.6,
+  "cost_usd": 0.2745,
+  "usd_per_job": 0.01144
+ },
+ {
+  "arm": "static-spread",
+  "seed": 5001,
+  "kills": 2,
+  "kill_times": [
+   49,
+   91
+  ],
+  "interrupts": 4,
+  "lost_gpu_s": 13.5,
+  "avg_recovery_s": 0.2,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 69.7,
+  "wall_s": 133.9,
+  "cost_usd": 0.1636,
+  "usd_per_job": 0.00682
+ },
+ {
+  "arm": "governed",
+  "seed": 5001,
+  "kills": 4,
+  "kill_times": [
+   49,
+   91,
+   154,
+   196
+  ],
+  "interrupts": 4,
+  "lost_gpu_s": 16.2,
+  "avg_recovery_s": 1.1,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 78.4,
+  "wall_s": 217.4,
+  "cost_usd": 0.2657,
+  "usd_per_job": 0.01107
  }
 ]

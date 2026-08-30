@@ -29,7 +29,8 @@ def natkey(s):
 
 class Node:
     __slots__ = ("id", "kind", "temp", "watts", "util", "energy_wh",
-                 "ts", "failed", "source", "desired", "degraded", "cordoned")
+                 "ts", "failed", "source", "desired", "degraded", "cordoned",
+                 "probed")
 
     def __init__(self, nid, kind, source):
         self.id, self.kind, self.source = nid, kind, source
@@ -42,6 +43,7 @@ class Node:
         self.desired = 0.0
         self.degraded = False       # exp #6: agent applies a real clock-lock
         self.cordoned = False       # exp #6: excluded from placement, not dead
+        self.probed = False         # exp #2: agent SIGSTOPs the node briefly
 
 
 class Registry:
@@ -115,6 +117,15 @@ class Registry:
                 self.nodes[nid].cordoned = bool(on)
         return ids
 
+    def probe_match(self, match, on):
+        """Exp #2: suspend/resume everything on matching nodes (agent-side
+        SIGSTOP/SIGCONT) to measure the cluster's dependency response."""
+        ids = [n.id for n in self.ordered() if match in n.id]
+        with self.lock:
+            for nid in ids:
+                self.nodes[nid].probed = bool(on)
+        return ids
+
     def fail_domain(self):
         ids = self.domain_ids()
         with self.lock:
@@ -130,13 +141,15 @@ class Registry:
                 n.failed = False
                 n.degraded = False
                 n.cordoned = False
+                n.probed = False
 
     def directives_for(self, ids):
         """The actuation payload an agent pulls with each report."""
         with self.lock:
             return {nid: {"intensity": self.nodes[nid].desired,
                           "failed": self.nodes[nid].failed,
-                          "degraded": self.nodes[nid].degraded}
+                          "degraded": self.nodes[nid].degraded,
+                          "probed": self.nodes[nid].probed}
                     for nid in ids if nid in self.nodes}
 
     def snapshot(self):
