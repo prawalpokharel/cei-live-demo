@@ -20,11 +20,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+from . import cei as cei_mod
 from .controller import Controller, EPOCH_S
 from .jobs import JobManager
 from .registry import Registry
 from .scheduler import Scheduler
 from .telemetry import MOCK, LocalMockSource
+
+SETPOINT_C = float(os.environ.get("SETPOINT_C", "45"))
+BAND_C = float(os.environ.get("BAND_C", "40"))
+# node ids that host a shared service other jobs depend on (exp #2),
+# parsed from SVC hosts if the agents advertise them; empty by default.
+DOMAIN_SERVICE_NODES = set(
+    x for x in os.environ.get("DEP_SERVICE_NODES", "").split(",") if x)
+
+
+def compute_cei():
+    """Per-node live CEI scores from current measured state."""
+    return cei_mod.node_scores(
+        reg.snapshot(), jm.running_detail(),
+        SETPOINT_C, BAND_C, DOMAIN_SERVICE_NODES)
 
 HERE = os.path.dirname(__file__)
 GHOST_PATH = os.path.join(HERE, "..", "ghost.json")
@@ -167,7 +182,26 @@ def metrics():
             "jobs": jm.snapshot(),
             "goodput": {k: round(v, 3) for k, v in jm._gp_ema.items()},
             "auto_evac": dict(AUTO_EVAC),
+            "cei": compute_cei(),
             "modeled": jm.snapshot()}       # back-compat alias
+
+
+@app.get("/whatif")
+def whatif(node: str):
+    """Counterfactual for one node: predicted blast radius if it fails now."""
+    scores = compute_cei()
+    return cei_mod.what_if(node, scores, jm.running_detail(),
+                           jm.snapshot().get("avg_recovery_s"))
+
+
+@app.get("/cei")
+def cei_endpoint():
+    """Ranked live CEI scores — the risk engine's current read of the fleet."""
+    scores = compute_cei()
+    ranked = sorted(scores.items(), key=lambda kv: kv[1]["cei"], reverse=True)
+    return {"nodes": scores,
+            "ranked": [{"node": k, **v} for k, v in ranked],
+            "setpoint_c": SETPOINT_C}
 
 
 # ---- controls ------------------------------------------------------------

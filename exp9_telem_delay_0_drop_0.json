@@ -1,0 +1,118 @@
+{
+ "trials": [
+  {
+   "arm": "governed",
+   "seed": 6300,
+   "kill_t": 79,
+   "running_at_kill": 25,
+   "running_denominator": "same-instant",
+   "interrupted_at_kill": 0,
+   "interrupt_rate_pct": 0.0,
+   "interrupts": 2,
+   "lost_gpu_s": 0.0,
+   "avg_recovery_s": 1.9,
+   "submitted": 32,
+   "completed": 32,
+   "all_done": true,
+   "ckpt_writes": 169,
+   "ckpt_cost_s": 73.36,
+   "energy_wh": 87.7,
+   "wall_s": 160.5,
+   "cost_usd": 0.314,
+   "kill_target": "h4-"
+  },
+  {
+   "arm": "governed",
+   "seed": 6301,
+   "kill_t": 116,
+   "running_at_kill": 16,
+   "running_denominator": "same-instant",
+   "interrupted_at_kill": 0,
+   "interrupt_rate_pct": 0.0,
+   "interrupts": 1,
+   "lost_gpu_s": 0.0,
+   "avg_recovery_s": 1.1,
+   "submitted": 32,
+   "completed": 32,
+   "all_done": true,
+   "ckpt_writes": 173,
+   "ckpt_cost_s": 82.25,
+   "energy_wh": 90.7,
+   "wall_s": 149.8,
+   "cost_usd": 0.293,
+   "kill_target": "h4-"
+  },
+  {
+   "arm": "governed",
+   "seed": 6302,
+   "kill_t": 92,
+   "running_at_kill": 23,
+   "running_denominator": "same-instant",
+   "interrupted_at_kill": 2,
+   "interrupt_rate_pct": 8.7,
+   "interrupts": 3,
+   "lost_gpu_s": 16.2,
+   "avg_recovery_s": 1.4,
+   "submitted": 32,
+   "completed": 32,
+   "all_done": true,
+   "ckpt_writes": 167,
+   "ckpt_cost_s": 73.8,
+   "energy_wh": 111.9,
+   "wall_s": 157.4,
+   "cost_usd": 0.308,
+   "kill_target": "h4-"
+  },
+  {
+   "arm": "governed",
+   "seed": 6303,
+   "kill_t": 68,
+   "running_at_kill": 29,
+   "running_denominator": "same-instant",
+   "interrupted_at_kill": 3,
+   "interrupt_rate_pct": 10.3,
+   "interrupts": 3,
+   "lost_gpu_s": 2.0,
+   "avg_recovery_s": 2.0,
+   "submitted": 32,
+   "completed": 32,
+   "all_done": true,
+   "ckpt_writes": 179,
+   "ckpt_cost_s": 77.33,
+   "energy_wh": 104.6,
+   "wall_s": 144.6,
+   "cost_usd": 0.283,
+   "kill_target": "h4-"
+  }
+ ],
+ "summary": {
+  "governed": {
+   "interrupt_rate_pct": [
+    4.75,
+    8.788024994843836
+   ],
+   "interrupts": [
+    2.25,
+    1.523266528440334
+   ],
+   "lost_gpu_s": [
+    4.55,
+    12.447478058225286
+   ],
+   "recovery_s": [
+    1.6,
+    0.6750041333206782
+   ],
+   "completed": [
+    32.0,
+    0.0
+   ],
+   "energy_wh": [
+    98.725,
+    18.23407935567811
+   ],
+   "wh_per_job": 3.08515625,
+   "jobs_per_usd": 106.84474123539232
+  }
+ }
+}

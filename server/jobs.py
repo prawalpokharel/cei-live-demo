@@ -228,6 +228,16 @@ class JobManager:
                             if j["state"] == "running" and j["node"] == nid]
             return out
 
+    def running_detail(self):
+        """{node_id: [{progress_s, ckpt_s}]} for CEI blast-radius scoring."""
+        with self.lock:
+            out = {}
+            for j in self.jobs.values():
+                if j["state"] == "running" and j["node"]:
+                    out.setdefault(j["node"], []).append(
+                        {"progress_s": j["progress_s"], "ckpt_s": j["ckpt_s"]})
+            return out
+
     def reset(self, seed=None):
         with self.lock:
             if seed is not None:
