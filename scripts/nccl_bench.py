@@ -28,7 +28,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 
-def worker(rank, world, seconds, backend, size_mb, q, exclude):
+def worker(rank, world, iters, backend, size_mb, q, exclude):
     if rank in exclude:
         return
     ranks = [r for r in range(world) if r not in exclude]
@@ -41,19 +41,20 @@ def worker(rank, world, seconds, backend, size_mb, q, exclude):
         torch.cuda.set_device(dev)
     n = int(size_mb * 1024 * 1024 / 4)
     t = torch.randn(n, device=dev)
-    # warmup
+    # warmup (fixed count so every rank agrees)
     for _ in range(3):
         dist.all_reduce(t)
     if backend == "nccl":
         torch.cuda.synchronize()
+    # FIXED iteration count — every rank runs exactly `iters` collectives,
+    # so no rank tears down while peers are still reducing (the timed-loop
+    # version raced on that and gloo aborted)
     t0 = time.time()
-    iters = 0
-    while time.time() - t0 < seconds:
+    for _ in range(iters):
         dist.all_reduce(t)
         t = t / t.norm()
         if backend == "nccl":
             torch.cuda.synchronize()
-        iters += 1
     wall = time.time() - t0
     if ranks.index(rank) == 0:
         q.put({"iters": iters, "wall": round(wall, 2),
@@ -63,16 +64,16 @@ def worker(rank, world, seconds, backend, size_mb, q, exclude):
     dist.destroy_process_group()
 
 
-def run_phase(world, seconds, backend, size_mb, exclude=()):
+def run_phase(world, iters, backend, size_mb, exclude=()):
     q = mp.get_context("spawn").Queue()
     ctx = mp.get_context("spawn")
     procs = [ctx.Process(target=worker,
-                         args=(r, world, seconds, backend, size_mb, q,
+                         args=(r, world, iters, backend, size_mb, q,
                                tuple(exclude)))
              for r in range(world)]
     for p in procs:
         p.start()
-    res = q.get(timeout=seconds + 120)
+    res = q.get(timeout=600)
     for p in procs:
         p.join(timeout=60)
         if p.is_alive():
@@ -83,7 +84,7 @@ def run_phase(world, seconds, backend, size_mb, exclude=()):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--world", type=int, default=8)
-    ap.add_argument("--seconds", type=int, default=45)
+    ap.add_argument("--iters", type=int, default=150)
     ap.add_argument("--size-mb", type=float, default=64)
     ap.add_argument("--straggler", type=int, default=3,
                     help="rank to clock-lock in phase B / exclude in C")
@@ -96,7 +97,7 @@ def main():
     args = ap.parse_args()
     backend = args.backend or ("nccl" if torch.cuda.is_available() else "gloo")
     exclude = (args.straggler,) if args.phase == "C" else ()
-    res = run_phase(args.world, args.seconds, backend, args.size_mb, exclude)
+    res = run_phase(args.world, args.iters, backend, args.size_mb, exclude)
     res["phase"] = args.phase
     res["straggler_rank"] = args.straggler if args.phase != "A" else None
     print(json.dumps(res))

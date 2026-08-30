@@ -26,6 +26,21 @@ RESUME_S = float(os.environ.get("RESUME_S", "0"))      # checkpointed progress
 CKPT_EVERY_S = float(os.environ.get("CKPT_EVERY_S", "10"))
 DEVICE = os.environ.get("DEVICE", "cpu")          # "0","1",... or "cpu"
 PDIR = os.environ.get("PROGRESS_DIR", "/tmp/cei-jobs")
+# Exp #2: a REAL hidden dependency — this job only makes progress while
+# the token file (written by a service process elsewhere on the chassis)
+# stays fresh. If the service's node is suspended or killed, this job
+# genuinely stalls; the scheduler is never told the edge exists.
+DEP_TOKEN = os.environ.get("DEP_TOKEN", "")
+DEP_STALE_S = float(os.environ.get("DEP_STALE_S", "3"))
+
+
+def dep_fresh():
+    if not DEP_TOKEN:
+        return True
+    try:
+        return (time.time() - os.path.getmtime(DEP_TOKEN)) < DEP_STALE_S
+    except Exception:
+        return False
 
 os.makedirs(PDIR, exist_ok=True)
 path = os.path.join(PDIR, JOB_ID + ".json")
@@ -87,10 +102,11 @@ def main():
     last_beat = 0.0
     iters_done = 0
     rate0 = None
+    stall_s = 0.0
     ckpt = (RESUME_S // CKPT_EVERY_S) * CKPT_EVERY_S
     beat(RESUME_S, ckpt, False)
     while True:
-        wall_work = (time.time() - t0) - state["cost_s"]
+        wall_work = (time.time() - t0) - state["cost_s"] - stall_s
         if work_mode:
             if rate0 is None and wall_work >= CALIB_S and iters_done > 0:
                 rate0 = iters_done / wall_work        # healthy its/sec
@@ -102,6 +118,14 @@ def main():
             elapsed = RESUME_S + wall_work
         if elapsed >= SECONDS:
             break
+        if not dep_fresh():
+            time.sleep(0.5)             # real stall: no work, no progress
+            stall_s += 0.5
+            if (time.time() - t0) - last_beat >= 1.0:
+                beat(elapsed, ckpt, False)
+                last_beat = time.time() - t0
+            continue
+        # beat cadence is wall-clock so stalls stay visible at 1 Hz
         if use_torch:
             for _ in range(8):
                 a = a @ b
@@ -121,9 +145,9 @@ def main():
         if boundary > ckpt:
             save_ckpt(a if use_torch else None)
             ckpt = boundary
-        if elapsed - last_beat >= 1.0:
+        if (time.time() - t0) - last_beat >= 1.0:
             beat(elapsed, ckpt, False)
-            last_beat = elapsed
+            last_beat = time.time() - t0
     beat(SECONDS, SECONDS, True)
 
 

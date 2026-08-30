@@ -287,5 +287,40 @@
   "wall_s": 215.3,
   "cost_usd": 0.2631,
   "usd_per_job": 0.01096
+ },
+ {
+  "arm": "static-spread",
+  "seed": 5001,
+  "kills": 1,
+  "kill_times": [
+   49
+  ],
+  "interrupts": 5,
+  "lost_gpu_s": 20.6,
+  "avg_recovery_s": 2.4,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 69.9,
+  "wall_s": 130.1,
+  "cost_usd": 0.159,
+  "usd_per_job": 0.00662
+ },
+ {
+  "arm": "governed",
+  "seed": 5001,
+  "kills": 2,
+  "kill_times": [
+   49,
+   91
+  ],
+  "interrupts": 4,
+  "lost_gpu_s": 16.2,
+  "avg_recovery_s": 1.7,
+  "completed": 24,
+  "all_done": true,
+  "energy_wh": 69.6,
+  "wall_s": 128.2,
+  "cost_usd": 0.1567,
+  "usd_per_job": 0.00653
  }
 ]
