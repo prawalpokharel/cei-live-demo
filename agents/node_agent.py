@@ -120,9 +120,31 @@ class JobRunner:
         except Exception:
             pass                                    # retried next reconcile
 
+    degraded_now = set()
+
+    def _apply_degrade(self, nid, on):
+        """Exp #6: a REAL straggler — lock the GPU's core clock low. The
+        jobs there keep running, just slowly; only measured progress rates
+        can reveal it. Reverted with -rgc."""
+        if "-g" not in nid or MOCK_GPUS:
+            return
+        idx = nid.rsplit("g", 1)[-1]
+        cmd = (["nvidia-smi", "-i", idx, "-lgc", "210,420"] if on
+               else ["nvidia-smi", "-i", idx, "-rgc"])
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=10)
+            print(f"DEGRADE {'on' if on else 'off'} {nid}", flush=True)
+        except Exception as e:
+            print(f"degrade failed {nid}: {e}", flush=True)
+
     def reconcile(self, directives):
         want = {}                        # job_id -> (node, seconds, resume_s)
         for nid, d in directives.items():
+            wants_degrade = bool(d.get("degraded"))
+            if wants_degrade != (nid in self.degraded_now):
+                self._apply_degrade(nid, wants_degrade)
+                (self.degraded_now.add(nid) if wants_degrade
+                 else self.degraded_now.discard(nid))
             if d.get("failed"):
                 for jid, rec in list(self.procs.items()):
                     if rec["node"] == nid:

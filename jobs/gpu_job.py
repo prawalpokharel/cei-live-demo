@@ -77,14 +77,29 @@ def main():
     except Exception:
         use_torch = False
 
+    # WORK_PROGRESS=1 (exp #6): progress = measured iterations against a
+    # baseline rate calibrated over the first healthy seconds — so a
+    # clock-locked GPU's jobs visibly slow down. Default (wall-based)
+    # keeps v3 comparability.
+    work_mode = os.environ.get("WORK_PROGRESS", "0") == "1" and use_torch
+    CALIB_S = 2.0
     t0 = time.time()
     last_beat = 0.0
+    iters_done = 0
+    rate0 = None
     ckpt = (RESUME_S // CKPT_EVERY_S) * CKPT_EVERY_S
     beat(RESUME_S, ckpt, False)
     while True:
-        # elapsed excludes time spent inside checkpoint saves: checkpoint
-        # cost is real overhead, not job progress
-        elapsed = RESUME_S + (time.time() - t0) - state["cost_s"]
+        wall_work = (time.time() - t0) - state["cost_s"]
+        if work_mode:
+            if rate0 is None and wall_work >= CALIB_S and iters_done > 0:
+                rate0 = iters_done / wall_work        # healthy its/sec
+            elapsed = RESUME_S + (iters_done / rate0 if rate0
+                                  else wall_work)
+        else:
+            # elapsed excludes time spent inside checkpoint saves:
+            # checkpoint cost is real overhead, not job progress
+            elapsed = RESUME_S + wall_work
         if elapsed >= SECONDS:
             break
         if use_torch:
@@ -97,6 +112,7 @@ def main():
                     torch.cuda.synchronize()
                 except Exception:
                     pass
+            iters_done += 1
         else:
             x = 1.0001
             for _ in range(200000):

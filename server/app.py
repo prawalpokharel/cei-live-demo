@@ -79,6 +79,23 @@ def _loop():
             mock.tick()
         jm.tick(sched.running)
         jm.domain_ids = frozenset(reg.domain_ids())   # adaptive ckpt (#7)
+        gp = jm.node_goodput()                        # measured rates (#6)
+        if AUTO_EVAC["on"]:
+            for nid, rate in gp.items():
+                node = reg.nodes.get(nid)
+                if node is None or node.cordoned or node.failed:
+                    continue
+                if rate < AUTO_EVAC["threshold"]:
+                    _gp_low[nid] = _gp_low.get(nid, 0) + 1
+                    if _gp_low[nid] >= AUTO_EVAC["consecutive"]:
+                        print(f"AUTO-EVAC {nid}: goodput {rate:.2f} < "
+                              f"{AUTO_EVAC['threshold']} for "
+                              f"{_gp_low[nid]} ticks", flush=True)
+                        reg.cordon_match(nid, True)
+                        jm.evacuate_nodes({nid})
+                        _gp_low.pop(nid, None)
+                else:
+                    _gp_low[nid] = 0
         now = time.time()
         if now - last_epoch >= EPOCH_S:
             last_epoch = now
@@ -136,6 +153,8 @@ def metrics():
     m["mock"] = MOCK
     return {"measured": m, "controller": ctl.snapshot(),
             "jobs": jm.snapshot(),
+            "goodput": {k: round(v, 3) for k, v in jm._gp_ema.items()},
+            "auto_evac": dict(AUTO_EVAC),
             "modeled": jm.snapshot()}       # back-compat alias
 
 
@@ -173,6 +192,40 @@ def reset(body: dict = None):
     jm.reset(seed=(body or {}).get("seed"))
     sched.running = False
     return {"ok": True}
+
+
+@app.post("/control/degrade")
+def degrade(body: dict = None):
+    """Exp #6: mark nodes degraded — agents apply a REAL clock-lock there.
+    {"match": "-g4", "on": true|false}"""
+    b = body or {}
+    ids = reg.degrade_match(b.get("match", ""), b.get("on", True))
+    return {"ok": True, "degraded": ids, "on": b.get("on", True)}
+
+
+@app.post("/control/evacuate")
+def evacuate(body: dict = None):
+    """Exp #6: cordon nodes and gracefully requeue their jobs (loss bounded
+    by checkpoint age). {"match": "-g4", "on": true|false}"""
+    b = body or {}
+    ids = reg.cordon_match(b.get("match", ""), b.get("on", True))
+    moved = jm.evacuate_nodes(set(ids)) if b.get("on", True) else 0
+    return {"ok": True, "cordoned": ids, "jobs_evacuated": moved}
+
+
+AUTO_EVAC = {"on": False, "threshold": 0.55, "consecutive": 4}
+_gp_low = {}
+
+
+@app.post("/control/auto_evacuate")
+def auto_evacuate(body: dict = None):
+    """Exp #6: let the hub itself detect slow-not-dead nodes from measured
+    job-progress rates and evacuate them. {"on": true, "threshold": 0.55}"""
+    b = body or {}
+    AUTO_EVAC["on"] = bool(b.get("on", True))
+    AUTO_EVAC["threshold"] = float(b.get("threshold", 0.55))
+    _gp_low.clear()
+    return {"ok": True, **AUTO_EVAC}
 
 
 @app.post("/control/ckpt")

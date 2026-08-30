@@ -29,7 +29,7 @@ def natkey(s):
 
 class Node:
     __slots__ = ("id", "kind", "temp", "watts", "util", "energy_wh",
-                 "ts", "failed", "source", "desired")
+                 "ts", "failed", "source", "desired", "degraded", "cordoned")
 
     def __init__(self, nid, kind, source):
         self.id, self.kind, self.source = nid, kind, source
@@ -40,6 +40,8 @@ class Node:
         self.ts = 0.0
         self.failed = False
         self.desired = 0.0
+        self.degraded = False       # exp #6: agent applies a real clock-lock
+        self.cordoned = False       # exp #6: excluded from placement, not dead
 
 
 class Registry:
@@ -72,7 +74,7 @@ class Registry:
         return [n for n in self.ordered() if now - n.ts < STALE_S]
 
     def healthy(self):
-        return [n for n in self.fresh() if not n.failed]
+        return [n for n in self.fresh() if not n.failed and not n.cordoned]
 
     def domain_ids(self):
         nodes = self.ordered()
@@ -96,6 +98,23 @@ class Registry:
                 self.nodes[nid].desired = 0.0
         return ids
 
+    def degrade_match(self, match, on):
+        """Exp #6: mark nodes degraded — the agent applies/reverts a REAL
+        GPU clock-lock; the hub only records intent and watches goodput."""
+        ids = [n.id for n in self.ordered() if match in n.id]
+        with self.lock:
+            for nid in ids:
+                self.nodes[nid].degraded = bool(on)
+        return ids
+
+    def cordon_match(self, match, on):
+        """Exp #6: exclude from future placement without killing anything."""
+        ids = [n.id for n in self.ordered() if match in n.id]
+        with self.lock:
+            for nid in ids:
+                self.nodes[nid].cordoned = bool(on)
+        return ids
+
     def fail_domain(self):
         ids = self.domain_ids()
         with self.lock:
@@ -109,12 +128,15 @@ class Registry:
         with self.lock:
             for n in self.nodes.values():
                 n.failed = False
+                n.degraded = False
+                n.cordoned = False
 
     def directives_for(self, ids):
         """The actuation payload an agent pulls with each report."""
         with self.lock:
             return {nid: {"intensity": self.nodes[nid].desired,
-                          "failed": self.nodes[nid].failed}
+                          "failed": self.nodes[nid].failed,
+                          "degraded": self.nodes[nid].degraded}
                     for nid in ids if nid in self.nodes}
 
     def snapshot(self):
@@ -126,6 +148,7 @@ class Registry:
                 "temp": round(n.temp, 1), "watts": round(n.watts, 1),
                 "util": round(n.util, 1), "energy_wh": round(n.energy_wh, 2),
                 "failed": n.failed, "stale": (now - n.ts) >= STALE_S,
+                "degraded": n.degraded, "cordoned": n.cordoned,
                 "domain": n.id in dom,
             } for n in self.ordered()],
             "uptime_s": int(now - self.t0),

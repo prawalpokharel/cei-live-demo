@@ -133,6 +133,53 @@ class JobManager:
         j["interrupted_at"] = time.time()
         j["node"] = None
 
+    # ---- goodput tracking (experiment #6) --------------------------------
+    # EMA of measured job-progress rate per node (1.0 = full speed). A GPU
+    # that is clock-locked keeps its jobs alive but their heartbeat progress
+    # slows — this is the signal that catches "slow, not dead".
+    def node_goodput(self):
+        with self.lock:
+            now = time.time()
+            rates = {}
+            for j in self.jobs.values():
+                if j["state"] != "running" or not j["node"]:
+                    continue
+                last = j.get("_gp_last")            # (ts, progress)
+                if last:
+                    dt = now - last[0]
+                    if dt >= 2.0:
+                        rate = (j["progress_s"] - last[1]) / dt
+                        rates.setdefault(j["node"], []).append(rate)
+                        j["_gp_last"] = (now, j["progress_s"])
+                else:
+                    j["_gp_last"] = (now, j["progress_s"])
+            out = {}
+            for nid, rs in rates.items():
+                ema = self._gp_ema.get(nid, 1.0)
+                inst = sum(rs) / len(rs)
+                self._gp_ema[nid] = ema * 0.7 + inst * 0.3
+            return dict(self._gp_ema)
+
+    _gp_ema = {}
+
+    evac_events = 0
+    evac_lost_gpu_s = 0.0
+
+    def evacuate_nodes(self, node_ids):
+        """Graceful migration: requeue running jobs from these nodes. The
+        loss per job is bounded by work since its last real checkpoint —
+        the whole point of evacuating BEFORE the hard failure."""
+        with self.lock:
+            moved = 0
+            lost0 = self.lost_gpu_s
+            for j in self.jobs.values():
+                if j["state"] == "running" and j["node"] in node_ids:
+                    self._interrupt(j)
+                    moved += 1
+            self.evac_events += moved
+            self.evac_lost_gpu_s += self.lost_gpu_s - lost0
+            return moved
+
     # ---- node failure (the red button) -----------------------------------
     def fail_nodes(self, node_ids):
         """Returns (interrupted_now, running_at_kill) counted at the SAME
@@ -191,6 +238,9 @@ class JobManager:
             self.recoveries = []
             self.lost_gpu_s = 0.0
             self.interrupted_events = 0
+            self.evac_events = 0
+            self.evac_lost_gpu_s = 0.0
+            self._gp_ema = {}
 
     def snapshot(self):
         with self.lock:
@@ -213,6 +263,8 @@ class JobManager:
                                    for j in self.jobs.values()),
                 "ckpt_cost_s": round(sum(j.get("ckpt_cost_s", 0.0)
                                          for j in self.jobs.values()), 2),
+                "evac_events": self.evac_events,
+                "evac_lost_gpu_s": round(self.evac_lost_gpu_s, 1),
                 "avg_recovery_s": round(sum(self.recoveries) /
                                         len(self.recoveries), 1)
                                   if self.recoveries else None,
